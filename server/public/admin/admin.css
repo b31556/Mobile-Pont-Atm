@@ -124,3 +124,11 @@ body{min-height:100vh}
 .subnote{font-size:12px;color:var(--ink-3);font-weight:400}
 .modesel{height:34px;border-radius:9px;border:1.5px solid var(--line);background:#fff;padding:0 8px;font-weight:600}
 .err{color:var(--red);font-weight:600;font-size:14px;margin:0}
+
+.zonechips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.zonechip{display:grid;gap:2px;text-align:left;padding:10px 16px;border-radius:12px;background:#fff;box-shadow:0 0 0 1.5px var(--line) inset;min-width:150px}
+.zonechip b{font:800 15px var(--display)}
+.zonechip span{font-size:12px;color:var(--ink-3)}
+.zonechip[aria-pressed=true]{box-shadow:0 0 0 2px var(--green) inset;background:#F1FAF4}
+.pointsel{display:grid;gap:6px}
+.formbtns{display:flex;gap:10px;flex-wrap:wrap}

@@ -5,7 +5,7 @@ const root = document.getElementById('root');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (s, r = document) => r.querySelector(s);
 
-const state = { page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [] };
+const state = { page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [], zones: [], zoneId: null };
 let token = null;
 try { token = sessionStorage.getItem('pont-token'); } catch {}
 
@@ -68,6 +68,8 @@ async function guard(fn) { try { await fn(); } catch (e) { toast(e.message); } }
 async function load() {
   const p = state.page;
   state.suggestions = await api('GET', '/card-suggestions');
+  state.zones = await api('GET', '/zones');
+  if (!state.zones.some(z => z.id === state.zoneId)) state.zoneId = state.zones[0]?.id ?? null;
   if (p === 'cards') {
     const [cards, tx] = await Promise.all([api('GET', '/cards?q=' + encodeURIComponent(state.q)), api('GET', '/transactions?limit=200')]);
     const all = state.q ? await api('GET', '/cards') : cards;
@@ -75,8 +77,7 @@ async function load() {
   } else if (p === 'terminals') state.data = { terminals: await api('GET', '/terminals') };
   else if (p === 'txns') state.data = { tx: await api('GET', '/transactions?limit=100') };
   else if (p === 'presence') {
-    const [settings, sessions] = await Promise.all([api('GET', '/presence/settings'), api('GET', '/presence/sessions')]);
-    state.data = { settings, sessions };
+    state.data = { sessions: await api('GET', '/presence/sessions') };
   }
   else state.data = { staff: await api('GET', '/staff') };
 }
@@ -142,23 +143,29 @@ const ROUNDING_LABELS = {
 };
 
 function presencePane() {
-  const { settings: c, sessions } = state.data;
-  if (!c) return '';
+  const { sessions } = state.data;
+  const zone = state.zones.find(z => z.id === state.zoneId);
+  if (!zone || !sessions) return '';
+  const c = zone.settings;
   const field = (id, label, value, hint, extra = '') => `<label class="field"><span>${label}</span><input id="${id}" type="number" min="0" step="1" value="${value ?? ''}" ${extra}>${hint ? `<small>${hint}</small>` : ''}</label>`;
+  const chips = state.zones.map(z => `<button class="zonechip" data-act="pickzone" data-id="${z.id}" aria-pressed="${z.id === zone.id}"><b>${esc(z.name)}</b>
+      <span>${z.terminals} point${z.terminals === 1 ? '' : 's'} · ${z.inside} inside</span></button>`).join('');
   const inside = sessions.inside.length ? sessions.inside.map(x => `<tr><td><div class="hold">${avatar({ ...x.card, hasPhoto: false })}${esc(x.card.name)}</div></td>
-      <td>${esc(when(x.inAt))}<div class="subnote">${esc(x.terminal)}</div></td><td class="num">${x.minutes} min${x.overdue ? ' <span class="pill bad">Overdue</span>' : ''}</td>
+      <td>${esc(x.zone)}</td><td>${esc(when(x.inAt))}<div class="subnote">${esc(x.terminal)}</div></td><td class="num">${x.minutes} min${x.overdue ? ' <span class="pill bad">Overdue</span>' : ''}</td>
       <td class="num">${x.overdue ? '—' : '+' + x.wouldEarn}</td>
       <td><div class="rowbtns"><button class="btn line sm" data-act="presenceclose" data-id="${x.id}" data-award="1">Sign out</button><button class="btn line sm" data-act="presenceclose" data-id="${x.id}" data-award="0">Discard</button></div></td></tr>`).join('')
-    : '<tr><td colspan="5" class="empty">Nobody is signed in right now.</td></tr>';
+    : '<tr><td colspan="6" class="empty">Nobody is signed in right now.</td></tr>';
   const recent = sessions.recent.length ? sessions.recent.map(x => `<tr><td><div class="hold">${avatar({ ...x.card, hasPhoto: false })}${esc(x.card.name)}</div></td>
-      <td>${esc(when(x.inAt))}</td><td>${x.outAt ? esc(when(x.outAt)) : '—'}<div class="subnote">${esc(x.terminal)}</div></td>
+      <td>${esc(x.zone)}</td><td>${esc(when(x.inAt))}</td><td>${x.outAt ? esc(when(x.outAt)) : '—'}<div class="subnote">${esc(x.terminal)}</div></td>
       <td class="num">${x.minutes ?? '—'}${x.minutes != null ? ' min' : ''}</td><td class="num">${x.points ? '+' + x.points : '0'}</td>
       <td>${x.status === 'closed' ? '<span class="pill ok">Signed out</span>' : x.status === 'expired' ? '<span class="pill bad">Forgotten</span>' : '<span class="pill mute">Discarded</span>'}</td></tr>`).join('')
-    : '<tr><td colspan="6" class="empty">No visits yet.</td></tr>';
-  return `<div class="ph"><div><h1>Check-in</h1><p>Points for time spent inside. The rules apply to every terminal set to Check-in mode.</p></div><span class="sp"></span>
-      <button class="btn line" data-act="refresh">Refresh</button></div>
+    : '<tr><td colspan="7" class="empty">No visits yet.</td></tr>';
+  return `<div class="ph"><div><h1>Check-in</h1><p>Points for time spent inside. Each zone has its own rules; each check-in terminal belongs to one zone (set that under Terminals).</p></div><span class="sp"></span>
+      <button class="btn line" data-act="refresh">Refresh</button><button class="btn green" data-act="newzone">Add zone</button></div>
+    <div class="zonechips" role="group" aria-label="Zones">${chips}</div>
     <div class="twocol">
-      <form class="panel" id="rules" autocomplete="off"><h2>Rules</h2>
+      <form class="panel" id="rules" autocomplete="off"><h2>Rules for ${esc(zone.name)}</h2>
+        <label class="field"><span>Zone name</span><input id="r-name" value="${esc(zone.name)}" maxlength="60" required></label>
         <div class="grid2">
           ${field('r-points', 'Points per block', c.pointsPerBlock, '', 'min="1"')}
           ${field('r-block', 'Block length (minutes)', c.blockMinutes, '', 'min="1"')}
@@ -168,19 +175,20 @@ function presencePane() {
           ${field('r-min', 'Minimum stay (minutes)', c.minMinutes, 'Shorter visits earn nothing')}
           ${field('r-stay', 'Longest stay (hours)', c.maxStayHours, 'A visit longer than this earns nothing', 'min="1"')}
           ${field('r-visit', 'Max points per visit', c.maxPointsVisit, 'Leave empty for no limit', 'min="1" placeholder="No limit"')}
-          ${field('r-day', 'Max points per 24 hours', c.maxPoints24h, 'Per card, rolling. Empty for no limit', 'min="1" placeholder="No limit"')}
+          ${field('r-day', 'Max points per 24 hours', c.maxPoints24h, 'Per card, in this zone. Empty for no limit', 'min="1" placeholder="No limit"')}
           ${field('r-lock', 'Re-tap lock-out (seconds)', c.cooldownSeconds, 'A tap this soon after checking in changes nothing')}
         </div>
         <p class="err" id="r-err" role="alert"></p>
-        <button class="btn green" type="submit">Save rules</button>
+        <div class="formbtns"><button class="btn green" type="submit">Save zone</button>
+          <button class="btn line" type="button" data-act="delzone" data-id="${zone.id}" data-name="${esc(zone.name)}">Delete zone</button></div>
       </form>
       <section class="panel"><h2>What a visit earns</h2><p class="hint">Calculated by the server from the rules as you type. The 24-hour limit isn’t included.</p>
         <table class="mini-table"><thead><tr><th>Stay</th><th>Points</th></tr></thead><tbody id="preview"></tbody></table></section>
     </div>
     <h2 class="sect">Inside now</h2>
-    <div class="tw"><table><thead><tr><th>Holder</th><th>Since</th><th>Time inside</th><th>Would earn</th><th></th></tr></thead><tbody>${inside}</tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Holder</th><th>Zone</th><th>Since</th><th>Time inside</th><th>Would earn</th><th></th></tr></thead><tbody>${inside}</tbody></table></div>
     <h2 class="sect">Recent visits</h2>
-    <div class="tw"><table><thead><tr><th>Holder</th><th>In</th><th>Out</th><th>Time</th><th>Points</th><th></th></tr></thead><tbody>${recent}</tbody></table></div>`;
+    <div class="tw"><table><thead><tr><th>Holder</th><th>Zone</th><th>In</th><th>Out</th><th>Time</th><th>Points</th><th></th></tr></thead><tbody>${recent}</tbody></table></div>`;
 }
 
 /** The rules as currently typed in the form (not yet saved). Empty caps mean no limit. */
@@ -208,16 +216,18 @@ function refreshPreview() {
 
 function terminalsPane() {
   const list = state.data.terminals || [];
-  return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. In ATM mode it gives points for an amount; in Check-in mode it signs people in and out (set the rules under Check-in). A phone follows a mode change within about 30 seconds.</p></div><span class="sp"></span>
+  return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. In ATM mode it gives points for an amount. In Check-in mode it signs people in and out: pick its zone (which decides the rules) and whether it signs in, signs out, or toggles. A phone follows a mode change within about 30 seconds.</p></div><span class="sp"></span>
     <button class="btn green" data-act="newterm">Pair a phone</button></div>
-    <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Mode</th><th>Phone</th><th>App</th><th>Given today</th><th></th></tr></thead><tbody>
+    <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Mode</th><th>Check-in point</th><th>Phone</th><th>App</th><th>Given today</th><th></th></tr></thead><tbody>
     ${list.length ? list.map(t => `<tr><td><b>${esc(t.name)}</b><div style="font-size:12px;color:var(--ink-3)">${esc(t.place)}</div></td>
       <td>${t.online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline</span>'}<div style="font-size:12px;color:var(--ink-3)">${t.lastSeen ? esc(when(t.lastSeen)) : 'Never seen'}</div></td>
       <td><select class="modesel" data-mode-for="${t.id}" aria-label="Mode of ${esc(t.name)}"><option value="atm"${t.mode === 'atm' ? ' selected' : ''}>ATM</option><option value="presence"${t.mode === 'presence' ? ' selected' : ''}>Check-in</option></select></td>
+      <td>${t.mode === 'presence' ? `<div class="pointsel"><select class="modesel" data-zone-for="${t.id}" aria-label="Zone of ${esc(t.name)}">${state.zones.map(z => `<option value="${z.id}"${z.id === t.zoneId ? ' selected' : ''}>${esc(z.name)}</option>`).join('')}</select>
+        <select class="modesel" data-dir-for="${t.id}" aria-label="Point type of ${esc(t.name)}"><option value="toggle"${t.direction === 'toggle' ? ' selected' : ''}>Toggle (in / out)</option><option value="in"${t.direction === 'in' ? ' selected' : ''}>Sign in only</option><option value="out"${t.direction === 'out' ? ' selected' : ''}>Sign out only</option></select></div>` : '<span style="color:var(--ink-3)">—</span>'}</td>
       <td style="color:var(--ink-2)">${esc(t.device || '—')}</td>
       <td class="mono">${esc(t.appVersion || '—')}</td><td class="num">${t.givenToday}</td>
       <td><div class="rowbtns"><button class="btn line sm" data-act="newcode" data-id="${t.id}">New code</button><button class="btn line sm" data-act="revoke" data-id="${t.id}" data-name="${esc(t.name)}">Revoke</button></div></td></tr>`).join('')
-      : '<tr><td colspan="7" class="empty">No terminals yet. Pair the first phone.</td></tr>'}
+      : '<tr><td colspan="8" class="empty">No terminals yet. Pair the first phone.</td></tr>'}
     </tbody></table></div>`;
 }
 
@@ -227,7 +237,7 @@ function txnsPane() {
     <div class="tw"><table><thead><tr><th>Time</th><th>ID</th><th>Holder</th><th>Points</th><th>Terminal</th><th>Operator</th><th>Status</th><th></th></tr></thead><tbody>
     ${tx.length ? tx.map(t => `<tr><td>${esc(when(t.createdAt))}</td><td class="mono">T-${t.id}</td>
       <td><div class="hold">${avatar({ ...t.card, hasPhoto: false })}${esc(t.card.name)}</div></td>
-      <td class="num ${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}${t.kind === 'presence' ? `<div class="subnote">Check-out · ${esc(t.note || '')}</div>` : ''}</td><td>${esc(t.terminal || '—')}</td><td>${esc(t.operator || '—')}</td>
+      <td class="num ${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}${t.kind === 'presence' ? `<div class="subnote">Check-out · ${esc(t.note || '')}${t.zone ? ' · ' + esc(t.zone) : ''}</div>` : ''}</td><td>${esc(t.terminal || '—')}</td><td>${esc(t.operator || '—')}</td>
       <td>${t.type === 'storno' ? `<span class="pill amber">Storno of T-${t.ref}</span>` : t.status === 'stornoed' ? '<span class="pill mute">Stornoed</span>' : '<span class="pill ok">Completed</span>'}</td>
       <td>${t.type === 'give' && t.status === 'ok' ? `<button class="btn line sm" data-act="storno" data-id="${t.id}">Storno</button>` : ''}</td></tr>`).join('')
       : '<tr><td colspan="8" class="empty">No transactions yet.</td></tr>'}
@@ -278,6 +288,14 @@ function modalView() {
     <label class="field" style="text-align:left">Terminal name<input name="name" required placeholder="Bar 2"></label>
     <label class="field" style="text-align:left">Place<input name="place" placeholder="Main hall"></label>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button><button class="btn green" style="flex:1;justify-content:center">Create and get code</button></div></form></div>`;
+  if (m.kind === 'newzone') return `<div class="modal-scrim" data-act="closemodal"><form class="modal" id="zoneform" data-stop>
+    <h2>Add a zone</h2><p style="color:var(--ink-2)">It starts with a copy of the rules of ${esc(m.from)}. Change them after.</p>
+    <label class="field" style="text-align:left">Zone name<input name="name" required maxlength="60" placeholder="Workshop"></label>
+    <p class="err" id="z-err" role="alert"></p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button><button class="btn green" style="flex:1;justify-content:center">Add zone</button></div></form></div>`;
+  if (m.kind === 'delzone') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
+    <h2>Delete ${esc(m.name)}?</h2><p style="color:var(--ink-2)">A zone that terminals use, or that has visit history, can’t be deleted.</p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn red" style="flex:1;justify-content:center" data-act="dodelzone" data-id="${m.id}">Delete</button></div></div></div>`;
   if (m.kind === 'revoke') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
     <h2>Revoke ${esc(m.name)}?</h2><p style="color:var(--ink-2)">The phone is signed out and can’t sign in again until it is paired with a new code.</p>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn red" style="flex:1;justify-content:center" data-act="dorevoke" data-id="${m.id}">Revoke</button></div></div></div>`;
@@ -319,8 +337,12 @@ root.addEventListener('submit', async e => {
     } catch (err) { state.loginError = err.message; render(); }
   } else if (f.id === 'rules') {
     const err = document.getElementById('r-err'); err.textContent = '';
-    try { await api('PUT', '/presence/settings', draftRules()); await refresh(); toast('Rules saved.'); }
+    try { await api('PUT', '/zones/' + state.zoneId, { name: document.getElementById('r-name').value, settings: draftRules() }); await refresh(); toast('Zone saved.'); }
     catch (ex) { err.textContent = ex.message; }
+  } else if (f.id === 'zoneform') {
+    const fd = new FormData(f), from = state.zones.find(z => z.id === state.zoneId);
+    try { const z = await api('POST', '/zones', { name: fd.get('name'), settings: from?.settings }); state.zoneId = z.id; state.modal = null; await refresh(); toast('Zone added.'); }
+    catch (ex) { document.getElementById('z-err').textContent = ex.message; }
   } else if (f.id === 'termform') {
     await guard(async () => {
       const fd = new FormData(f);
@@ -342,6 +364,10 @@ root.addEventListener('input', e => {
 });
 root.addEventListener('change', async e => {
   if (e.target.closest && e.target.closest('#rules')) refreshPreview();
+  if (e.target.dataset && (e.target.dataset.zoneFor || e.target.dataset.dirFor)) {
+    const id = e.target.dataset.zoneFor || e.target.dataset.dirFor;
+    await guard(async () => { await api('PATCH', '/terminals/' + id, e.target.dataset.zoneFor ? { zoneId: e.target.value } : { direction: e.target.value }); await refresh(); toast('Saved.'); });
+  }
   if (e.target.dataset && e.target.dataset.modeFor) {
     await guard(async () => { const t = await api('PATCH', '/terminals/' + e.target.dataset.modeFor, { mode: e.target.value }); await refresh(); toast(t.name + ' is now in ' + (t.mode === 'presence' ? 'Check-in' : 'ATM') + ' mode.'); });
   }
@@ -387,6 +413,10 @@ root.addEventListener('click', async e => {
       } catch (ex) { err.textContent = ex.message; }
       break; }
     case 'refresh': await refresh(); break;
+    case 'pickzone': state.zoneId = id; render(); break;
+    case 'newzone': state.modal = { kind: 'newzone', from: state.zones.find(z => z.id === state.zoneId)?.name || 'this zone' }; render(); break;
+    case 'delzone': state.modal = { kind: 'delzone', id, name: el.dataset.name }; render(); break;
+    case 'dodelzone': state.modal = null; render(); await guard(async () => { await api('DELETE', '/zones/' + id); state.zoneId = null; await refresh(); toast('Zone deleted.'); }); break;
     case 'presenceclose': await guard(async () => {
       const r = await api('POST', `/presence/sessions/${id}/close`, { award: el.dataset.award === '1' });
       await refresh(); toast(el.dataset.award === '1' ? 'Signed out' + (r.points ? ' · +' + r.points + ' points.' : ' · no points earned.') : 'Visit discarded.');
