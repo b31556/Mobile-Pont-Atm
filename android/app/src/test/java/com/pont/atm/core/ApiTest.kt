@@ -131,4 +131,23 @@ class ApiTest {
     @Test fun photoUrlJoinsTheBaseUrl() {
         assertEquals(session.baseUrl + "/cards/c1/photo", api.photoUrl("/cards/c1/photo"))
     }
+
+    @Test fun suggestCardPostsTheUidWithThePhonesToken() = runBlocking {
+        server.enqueue(json(200, """{"ok":true}"""))
+        assertTrue(api.suggestCard("04:EE:00:77").isSuccess)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method); assertEquals("/card-suggestions", req.path)
+        assertEquals("Bearer term-tok", req.getHeader("Authorization"))
+        assertTrue("\"cardUid\":\"04:EE:00:77\"" in req.body.readUtf8())
+    }
+
+    @Test fun suggestCardSurfacesAnAlreadyRegisteredCard() = runBlocking {
+        server.enqueue(json(409, """{"error":"That card is already registered.","code":"already_registered"}"""))
+        assertEquals("That card is already registered.", api.suggestCard("04:A2:3B:1C").exceptionOrNull()?.message)
+    }
+
+    @Test fun suggestCardWithoutAConnectionSaysSo() = runBlocking {
+        server.shutdown()
+        assertEquals("No connection to the server.", api.suggestCard("04:EE:00:77").exceptionOrNull()?.message)
+    }
 }

@@ -130,4 +130,24 @@ class ChargeFlowTest {
         f.retry()
         assertEquals(FlowState.WaitingForCard(8), f.state.value)
     }
+
+    @Test fun oneMoreLikeThisStartsANewChargeStraightFromTheResult() = runTest {
+        val api = Fake(ok); val f = flow(api)
+        f.start(8); f.onTag("04:A2:3B:1C")
+        f.start(8) // "One more like this" on the result screen: no trip back to the keypad
+        assertEquals(FlowState.WaitingForCard(8), f.state.value)
+        f.onTag("04:7F:91:E2")
+        assertEquals(listOf("key-1", "key-2"), api.calls.map { it.third })
+        assertEquals("04:7F:91:E2", api.calls.last().first)
+    }
+
+    @Test fun startIsIgnoredWhileARequestIsInFlight() = runTest {
+        val gate = CompletableDeferred<Unit>(); val f = flow(Fake(ok, gate)); f.start(8)
+        val job = launch { f.onTag("04:A2:3B:1C") }
+        testScheduler.runCurrent()
+        f.start(20)
+        assertTrue(f.state.value is FlowState.Sending)
+        gate.complete(Unit); job.join()
+        assertEquals(8, (f.state.value as FlowState.Done).amount)
+    }
 }

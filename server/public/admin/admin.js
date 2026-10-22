@@ -5,7 +5,7 @@ const root = document.getElementById('root');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (s, r = document) => r.querySelector(s);
 
-const state = { page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {} };
+const state = { page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [] };
 let token = null;
 try { token = sessionStorage.getItem('pont-token'); } catch {}
 
@@ -42,6 +42,16 @@ async function loadPhotos() {
 const avatar = (card, cls = '') => `<img class="av ${cls}" alt="${esc(card.name)}" data-photo="${esc(card.photoUrl)}${card.hasPhoto ? '?p=' + esc(card.lastPhoto || '') : ''}">`;
 // Cache key must change when a photo is replaced; photoUrl carries a version suffix the server ignores.
 
+/* ---------- copy ---------- */
+async function copyText(text) {
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; } } catch {}
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;opacity:0;top:0';
+  document.body.appendChild(ta); ta.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch {}
+  ta.remove(); return ok;
+}
+
 /* ---------- format ---------- */
 function when(iso) {
   if (!iso) return 'Never';
@@ -57,6 +67,7 @@ async function guard(fn) { try { await fn(); } catch (e) { toast(e.message); } }
 /* ---------- data ---------- */
 async function load() {
   const p = state.page;
+  state.suggestions = await api('GET', '/card-suggestions');
   if (p === 'cards') {
     const [cards, tx] = await Promise.all([api('GET', '/cards?q=' + encodeURIComponent(state.q)), api('GET', '/transactions?limit=200')]);
     const all = state.q ? await api('GET', '/cards') : cards;
@@ -80,7 +91,7 @@ function loginView() {
 }
 
 function shell(inner) {
-  const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id}">${l}</button>`;
+  const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id}">${l}${id === 'cards' && state.suggestions.length ? `<span class="badge" title="Suggested cards">${state.suggestions.length}</span>` : ''}</button>`;
   return `<div class="adm"><aside class="side"><div class="brand"><span class="coin">P</span>Pont admin</div>
     ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
     <div class="me"><button data-act="signout">Sign out</button></div></aside>
@@ -98,12 +109,24 @@ function cardsPane() {
       <td class="num">${c.balance}</td><td>${statusPill(c.status)}</td><td style="color:var(--ink-2)">${esc(when(c.lastUsed))}</td>
       <td><button class="btn line sm" data-act="toggle" data-id="${c.id}">${c.status === 'blocked' ? 'Unblock' : 'Block'}</button></td></tr>`).join('')
     : `<tr><td colspan="6" class="empty">${state.q ? 'No card matches “' + esc(state.q) + '”. Try a name or a UID.' : 'No cards yet. Add the first one.'}</td></tr>`;
-  return `<div class="ph"><div><h1>Cards</h1><p>${active} active, ${all.length - active} blocked</p></div><span class="sp"></span>
+  return `${suggestionsPanel()}<div class="ph"><div><h1>Cards</h1><p>${active} active, ${all.length - active} blocked</p></div><span class="sp"></span>
     <input class="search" id="q" placeholder="Search name or UID" value="${esc(state.q)}" aria-label="Search cards">
     <button class="btn green" data-act="newcard">Add card</button></div>
     <div class="stats"><div class="stat"><b>${all.reduce((s, c) => s + c.balance, 0)}</b><span>Points on cards</span></div>
     <div class="stat"><b>${given}</b><span>Given today, after storno</span></div><div class="stat"><b>${active}</b><span>Active cards</span></div></div>
     <div class="tw"><table><thead><tr><th>Holder</th><th>Card UID</th><th>Points</th><th>Status</th><th>Last used</th><th></th></tr></thead><tbody id="rows">${rows}</tbody></table></div>`;
+}
+
+function suggestionsPanel() {
+  const list = state.suggestions || [];
+  if (!list.length) return '';
+  return `<section class="suggest" aria-label="Suggested cards"><h2>Suggested cards <span class="badge">${list.length}</span></h2>
+    <p>Tapped at a terminal but not registered. Add one to give it a holder and a photo.</p>
+    ${list.map(x => `<div class="srow"><code class="mono uid">${esc(x.uid)}</code>
+      <span class="swhen">${x.count > 1 ? 'tapped ' + x.count + '× · ' : ''}${esc(x.terminal || 'a terminal')} · ${esc(when(x.lastSeen))}</span>
+      <span class="rowbtns"><button class="btn line sm" data-act="copyuid" data-uid="${esc(x.uid)}">Copy UID</button>
+      <button class="btn green sm" data-act="addsuggested" data-uid="${esc(x.uid)}">Add as card</button>
+      <button class="btn line sm" data-act="dismiss" data-uid="${esc(x.uid)}" aria-label="Dismiss ${esc(x.uid)}">Dismiss</button></span></div>`).join('')}</section>`;
 }
 
 function terminalsPane() {
@@ -145,7 +168,7 @@ function staffPane() {
 
 function drawerView() {
   const d = state.drawer, isNew = d.mode === 'new';
-  const c = isNew ? { name: '', uid: '', balance: 0, status: 'active', photoUrl: '', hasPhoto: false } : d.card;
+  const c = isNew ? { name: '', uid: d.uid || '', balance: 0, status: 'active', photoUrl: '', hasPhoto: false } : d.card;
   const hist = isNew ? [] : (state.data.tx || []).filter(t => t.card.id === c.id).slice(0, 4);
   return `<div class="drawer-scrim" data-act="closedrawer"><div class="drawer" data-stop>
     <h2>${isNew ? 'Add card' : esc(c.name)}</h2>
@@ -154,7 +177,7 @@ function drawerView() {
       <input id="d-photo" type="file" accept="image/jpeg,image/png,image/webp" class="hidden"></label>
     <label class="field">Holder name<input id="d-name" value="${esc(c.name)}" placeholder="Full name"></label>
     <label class="field">Card UID<input id="d-uid" class="mono" value="${esc(c.uid)}" placeholder="04:A2:3B:1C"></label>
-    <p style="font-size:12px;color:var(--ink-3);margin-top:-6px">Tap the card on a terminal. An unregistered card shows its UID on the phone.</p>
+    <p style="font-size:12px;color:var(--ink-3);margin-top:-6px">On a terminal, tap the card and choose “Suggest for addition”. It then appears under Suggested cards, with its UID ready to copy.</p>
     ${isNew ? '<label class="field">Starting points<input id="d-pts" type="number" min="0" value="0"></label>'
       : `<div class="dsep"></div><div class="inline" style="align-items:center"><div style="flex:1"><b class="num" style="font-size:26px">${c.balance}</b> points</div>${statusPill(c.status)}</div>
          <div class="inline"><input class="search" id="d-adj" type="number" placeholder="Adjust by, e.g. -5" style="min-width:0;flex:1" aria-label="Adjust balance by"><button class="btn line" data-act="adjust" type="button">Apply</button></div>
@@ -250,6 +273,9 @@ root.addEventListener('click', async e => {
   switch (act) {
     case 'signout': signOut(); break;
     case 'newcard': state.drawer = { mode: 'new' }; render(); break;
+    case 'addsuggested': state.drawer = { mode: 'new', uid: el.dataset.uid }; render(); break;
+    case 'copyuid': e.stopPropagation(); toast((await copyText(el.dataset.uid)) ? 'Copied ' + el.dataset.uid : 'Could not copy. Select the UID and copy it by hand.'); break;
+    case 'dismiss': await guard(async () => { await api('DELETE', '/card-suggestions/' + encodeURIComponent(el.dataset.uid)); await refresh(); toast('Suggestion dismissed.'); }); break;
     case 'edit': state.drawer = { mode: 'edit', card }; render(); break;
     case 'closedrawer': state.drawer = null; render(); break;
     case 'closemodal': state.modal = null; render(); break;

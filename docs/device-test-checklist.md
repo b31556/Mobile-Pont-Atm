@@ -22,14 +22,15 @@ Phone model / Android version: ______________   Card(s): ______________   App bu
 - [ ] Preset: one tap on "8" goes straight to the card screen, then tap: charged
 - [ ] With "Tap once, then card" off, a preset only fills the amount
 - [ ] Progress bar is visible for about a second even when the server answers instantly
-- [ ] Beep is clean and complete (a quick rising pair on success, a falling pair on a refusal), with no clicks or cut-off ends
+- [ ] Sounds are like a card terminal and not cut off: one short beep the moment the card is read, one longer beep when approved, three lower beeps when refused
 - [ ] Card read to result takes about half a second plus the server time
 - [ ] Beep off in the terminal menu: silent on success and refusal
 
 ## Refusals
 - [ ] Block the card in admin: tap shows "Card is blocked" with the holder's photo, balance unchanged
 - [ ] Unblock it: charging works again
-- [ ] Unregistered card: "Card not registered" with the UID
+- [ ] Unregistered card: "Card not registered" with the UID, and a **Suggest for addition** button; after pressing it the admin site shows the card under Suggested cards, and Add as card opens the form with that UID
+- [ ] After a successful charge, **One more like this** goes straight to waiting for the next card with the same amount (no keypad), and each tap is a separate charge
 - [ ] NFC switched off in settings: the tap screen says so and offers a button to the settings
 
 ## Connection

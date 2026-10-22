@@ -12,6 +12,7 @@ import { registerTerminals } from './routes/terminals.js';
 import { registerCards } from './routes/cards.js';
 import { registerCharges } from './routes/charges.js';
 import { registerPresets } from './routes/presets.js';
+import { registerSuggestions } from './routes/suggestions.js';
 
 export interface AppOptions { db: Db; jwtSecret: string; dataDir?: string; trustProxy?: boolean }
 
@@ -30,6 +31,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   registerCards(app, opts.dataDir ?? './data');
   registerCharges(app);
   registerPresets(app);
+  registerSuggestions(app);
   app.get('/health', async () => ({ ok: true }));
   return app;
 }
