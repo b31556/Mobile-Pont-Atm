@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openDb } from '../src/db.js';
 import { buildApp } from '../src/app.js';
 import { seedStaff } from '../src/auth.js';
 
 export async function makeApp() {
   const db = openDb(':memory:');
-  const app = buildApp({ db, jwtSecret: 'test-secret' });
+  const app = buildApp({ db, jwtSecret: 'test-secret', dataDir: mkdtempSync(join(tmpdir(), 'pont-')) });
   await app.ready();
   seedStaff(db, { name: 'Admin', email: 'admin@pont.example', password: 'adminpass', role: 'admin' });
   const adminToken = await login(app, 'admin@pont.example', 'adminpass');
