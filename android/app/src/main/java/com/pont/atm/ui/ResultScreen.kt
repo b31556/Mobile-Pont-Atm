@@ -38,16 +38,18 @@ import kotlinx.coroutines.launch
 @Composable
 fun ResultScreen(
     done: FlowState.Done, api: PontApi, terminal: String,
-    onNext: () -> Unit, onRetry: () -> Unit, onStorno: suspend (Long) -> Result<StornoResult>,
+    onNext: () -> Unit, onSame: () -> Unit, onRetry: () -> Unit,
+    onStorno: suspend (Long) -> Result<StornoResult>, onSuggest: suspend (String) -> Result<Unit>,
 ) {
     when (val o = done.outcome) {
-        is ChargeOutcome.Success -> SuccessResult(done.amount, o, api, terminal, onNext, onStorno)
+        is ChargeOutcome.Success -> SuccessResult(done.amount, o, api, terminal, onNext, onSame, onStorno)
         else -> {
             val copy = refusalCopy(o, done.uid)!!
             val holder = (o as? ChargeOutcome.Blocked)
             // After a lost connection the operator can tap the same card again; the same key makes the server answer once.
             val retry = if (o is ChargeOutcome.NoConnection || o is ChargeOutcome.Failed) onRetry else null
-            Refusal(copy.title, copy.message, holder?.name, holder?.photoUrl, api, retry, onNext)
+            val suggest = if (o is ChargeOutcome.UnknownCard) onSuggest else null
+            Refusal(copy.title, copy.message, holder?.name, holder?.photoUrl, api, retry, onNext, done.uid, suggest)
         }
     }
 }
@@ -61,7 +63,7 @@ private fun Header(color: Color, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SuccessResult(amount: Int, o: ChargeOutcome.Success, api: PontApi, terminal: String, onNext: () -> Unit, onStorno: suspend (Long) -> Result<StornoResult>) {
+private fun SuccessResult(amount: Int, o: ChargeOutcome.Success, api: PontApi, terminal: String, onNext: () -> Unit, onSame: () -> Unit, onStorno: suspend (Long) -> Result<StornoResult>) {
     var stornoed by remember { mutableStateOf<StornoResult?>(null) }
     var asking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -90,8 +92,14 @@ private fun SuccessResult(amount: Int, o: ChargeOutcome.Success, api: PontApi, t
             error?.let { Text(it, color = PontColors.Red, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
             Spacer(Modifier.weight(1f))
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                GoButton("Next customer", onClick = onNext)
-                if (stornoed == null) GhostButton("Storno this charge", PontColors.Red) { error = null; asking = true }
+                if (stornoed == null) {
+                    // Straight back to waiting for a card, same amount: no trip through the keypad.
+                    GoButton("One more like this · $amount ${if (amount == 1) "pt" else "pts"}", onClick = onSame)
+                    GhostButton("Next customer", PontColors.Ink, onClick = onNext)
+                    GhostButton("Storno this charge", PontColors.Red) { error = null; asking = true }
+                } else {
+                    GoButton("Next customer", onClick = onNext)
+                }
             }
         }
         if (asking) BottomSheet(onDismiss = { asking = false }) {
@@ -118,7 +126,11 @@ private fun MetaCard(rows: List<Pair<String, String>>) {
 }
 
 @Composable
-private fun Refusal(title: String, message: String, holder: String?, photo: String?, api: PontApi, onRetry: (() -> Unit)?, onNext: () -> Unit) {
+private fun Refusal(title: String, message: String, holder: String?, photo: String?, api: PontApi, onRetry: (() -> Unit)?, onNext: () -> Unit, uid: String, onSuggest: (suspend (String) -> Result<Unit>)?) {
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var suggested by remember { mutableStateOf(false) }
+    var suggestError by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize()) {
         Header(PontColors.Red) {
             Text("✕", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 36.sp)
@@ -135,6 +147,19 @@ private fun Refusal(title: String, message: String, holder: String?, photo: Stri
         }
         Spacer(Modifier.weight(1f))
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (onSuggest != null) {
+                if (suggested) Text("✓ Suggested. An admin will see this card in the admin site.", color = PontColors.GreenDark, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                else {
+                    suggestError?.let { Text(it, color = PontColors.Red, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+                    GoButton(if (busy) "Sending…" else "Suggest for addition", enabled = !busy) {
+                        scope.launch {
+                            busy = true; suggestError = null
+                            onSuggest(uid).onSuccess { suggested = true }.onFailure { suggestError = it.message }
+                            busy = false
+                        }
+                    }
+                }
+            }
             if (onRetry != null) GoButton("Tap again", onClick = onRetry)
             GhostButton("Back to keypad", PontColors.Ink, onClick = onNext)
         }

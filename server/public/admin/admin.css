@@ -102,3 +102,11 @@ body{min-height:100vh}
 .field input.mono{font-family:ui-monospace,Menlo,monospace}
 .alogin .brand{margin-bottom:6px}
 .brand{font-family:var(--display);font-weight:800;font-size:20px;display:flex;align-items:center;gap:10px}
+
+.badge{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--amber);color:var(--ink);font:800 12px var(--text);margin-left:8px;vertical-align:middle}
+.suggest{background:var(--amber-l);border:1px solid #F0D79A;border-radius:14px;padding:16px 18px;margin-bottom:18px}
+.suggest h2{font:800 18px var(--display);margin:0}
+.suggest>p{color:#5E4300;font-size:13px;margin:2px 0 10px}
+.srow{display:flex;align-items:center;gap:14px;padding:8px 0;border-top:1px solid #F0D79A;flex-wrap:wrap}
+.srow .uid{font-size:15px;font-weight:700;color:var(--ink);user-select:all}
+.srow .swhen{flex:1;min-width:160px;font-size:13px;color:#5E4300}

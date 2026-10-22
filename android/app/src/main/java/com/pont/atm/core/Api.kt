@@ -81,6 +81,10 @@ class PontApi(
         }
     }
 
+    /** Asks an admin to register a card the terminal didn't recognise. */
+    suspend fun suggestCard(cardUid: String): Result<Unit> =
+        call("POST", "/card-suggestions", buildJsonObject { put("cardUid", cardUid) }) { }
+
     override suspend fun history(): Result<List<Tx>> =
         call("GET", "/transactions?limit=100") { json.decodeFromString<List<Tx>>(it) }
 

@@ -31,7 +31,9 @@ class ChargeFlow(private val api: ChargeApi, private val newKey: () -> String) {
     private var key: String? = null
     private var keyUid: String? = null
 
+    /** Begins a charge. Also used by "One more like this" straight from a result. Ignored while a request is in flight. */
     fun start(amount: Int) {
+        if (_state.value is FlowState.Sending) return
         key = newKey(); keyUid = null
         _state.value = FlowState.WaitingForCard(amount)
     }

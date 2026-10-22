@@ -52,12 +52,38 @@ class ToneSynthTest {
         assertTrue(pcm.all { it.toInt() == 0 })
     }
 
-    @Test fun successAndRefusalSoundsAreShortAndDifferent() {
-        val ok = Beeps.success.sumOf { it.ms }; val bad = Beeps.refusal.sumOf { it.ms }
-        assertTrue("success $ok ms", ok in 150..500)
-        assertTrue("refusal $bad ms", bad in 150..700)
-        assertTrue(Beeps.success != Beeps.refusal)
-        assertTrue("success rises", Beeps.success.filter { it.hz > 0 }.let { it.last().hz > it.first().hz })
-        assertTrue("refusal falls", Beeps.refusal.filter { it.hz > 0 }.let { it.last().hz < it.first().hz })
+    private fun beeps(l: List<ToneSynth.Segment>) = l.filter { it.hz > 0 }
+    private fun total(l: List<ToneSynth.Segment>) = l.sumOf { it.ms }
+
+    @Test fun aReadIsOneShortBeep() {
+        assertEquals(1, beeps(Beeps.read).size)
+        assertTrue("read ${total(Beeps.read)} ms", total(Beeps.read) in 50..150)
+    }
+
+    @Test fun anApprovalIsOneLongerBeep() {
+        assertEquals(1, beeps(Beeps.success).size)
+        assertTrue("success ${total(Beeps.success)} ms", total(Beeps.success) in 250..500)
+        assertTrue("longer than the read beep", total(Beeps.success) > total(Beeps.read))
+    }
+
+    @Test fun aRefusalIsThreeShortLowerBeeps() {
+        assertEquals(3, beeps(Beeps.refusal).size)
+        assertTrue("refusal ${total(Beeps.refusal)} ms", total(Beeps.refusal) in 300..800)
+        assertTrue("lower than an approval", beeps(Beeps.refusal).all { it.hz < beeps(Beeps.success).first().hz })
+    }
+
+    @Test fun theBuzzerWaveKeepsThePitchAndNeverClips() {
+        val pcm = render(ToneSynth.Segment(1000, 200, gain = 0.5f, wave = ToneSynth.Wave.Buzzer))
+        val crossings = (1..pcm.lastIndex).count { (pcm[it - 1] < 0) != (pcm[it] < 0) }
+        assertEquals("zero crossings for 1 kHz over 200 ms", 400.0, crossings.toDouble(), 10.0)
+        val peak = pcm.maxOf { abs(it.toInt()) }
+        assertTrue("peak $peak", peak in (Short.MAX_VALUE * 0.46).toInt()..(Short.MAX_VALUE * 0.5).toInt())
+    }
+
+    // A band-limited square wave overshoots its plateau by about 18% (Gibbs), so scaled to the same peak it
+    // carries roughly 12% more energy than a sine: RMS 0.85 against 0.71 of the peak is the theoretical ceiling.
+    @Test fun theBuzzerWaveCarriesMoreEnergyThanASine() {
+        fun rms(w: ToneSynth.Wave) = render(ToneSynth.Segment(1000, 200, gain = 0.5f, wave = w)).let { p -> kotlin.math.sqrt(p.sumOf { it.toDouble() * it } / p.size) }
+        assertTrue("buzzer ${rms(ToneSynth.Wave.Buzzer)} vs sine ${rms(ToneSynth.Wave.Sine)}", rms(ToneSynth.Wave.Buzzer) > rms(ToneSynth.Wave.Sine) * 1.08)
     }
 }

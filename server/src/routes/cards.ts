@@ -45,8 +45,12 @@ export function registerCards(app: FastifyInstance, dataDir: string) {
     if (!Number.isInteger(points) || points < 0) return reply.code(400).send({ error: 'Starting points must be 0 or more' });
     if (findCardByUid(db, uid)) return reply.code(409).send({ error: 'That UID is already on a card' });
     const id = randomUUID();
+    const name = b.name.trim();
     const style = Number.isInteger(b.photoStyle) ? b.photoStyle! : (db.prepare('select count(*) c from cards').get() as { c: number }).c % STYLES.length;
-    db.prepare('insert into cards(id,name,uid,balance,status,photo_style) values(?,?,?,?,?,?)').run(id, b.name.trim(), uid, points, 'active', style);
+    db.transaction(() => {
+      db.prepare('insert into cards(id,name,uid,balance,status,photo_style) values(?,?,?,?,?,?)').run(id, name, uid, points, 'active', style);
+      db.prepare('delete from card_suggestions where uid=?').run(uid);
+    })();
     return reply.code(201).send(cardJson(get(id)!));
   });
 
@@ -63,6 +67,7 @@ export function registerCards(app: FastifyInstance, dataDir: string) {
       const other = findCardByUid(db, uid);
       if (other && other.id !== id) return reply.code(409).send({ error: 'That UID is already on a card' });
       set.push('uid=?'); vals.push(uid);
+      db.prepare('delete from card_suggestions where uid=?').run(uid);
     }
     if (b.status !== undefined) { if (!['active', 'blocked'].includes(b.status)) return reply.code(400).send({ error: 'Bad status' }); set.push('status=?'); vals.push(b.status); }
     if (b.photoStyle !== undefined && Number.isInteger(b.photoStyle)) { set.push('photo_style=?'); vals.push(b.photoStyle); }

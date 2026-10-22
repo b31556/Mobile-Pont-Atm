@@ -75,7 +75,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     // A short minimum "processing" time so the progress bar is visible, then the POS beep with the result.
     LaunchedEffect(flowState) {
         when (val s = flowState) {
-            is FlowState.Sending -> { sendStart = SystemClock.elapsedRealtime(); resultReady = false }
+            is FlowState.Sending -> { sendStart = SystemClock.elapsedRealtime(); resultReady = false; graph.beeper.read() }
             is FlowState.Done -> {
                 val wait = ProcessingTiming.remaining(SystemClock.elapsedRealtime() - sendStart)
                 if (wait > 0) delay(wait)
@@ -128,8 +128,10 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
                                 flow.reset(); pad.clear()
                                 noteResult(Result.success(Unit))
                             },
+                            onSame = { flow.start((flowState as FlowState.Done).amount) },
                             onRetry = { flow.retry() },
                             onStorno = { id -> api.storno(id).also { noteResult(it) } },
+                            onSuggest = { uid -> api.suggestCard(uid).also { noteResult(it) } },
                         )
                         else -> when (screen) {
                             Screen.Pair -> PairScreen(busy, authError) { code ->

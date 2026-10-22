@@ -29,7 +29,9 @@ These are my calls unless noted.
 - **Terminal pairing, no sign-in (changed 2026-10-22 at the user's request):** admin creates a terminal and gets a one-time 6-digit code (10 min expiry). The app exchanges the code for a long-lived terminal token, and that token alone authorizes charges, history, storno and presets for that terminal. There is no per-person login in the app. Charges are recorded under the terminal's name (no staff id). A lost or retired phone is cut off by revoking its terminal in admin. Admins sign in on the website with email and password. Staff operator accounts still work on the server for sessions made before this change.
 - **Presets** belong to the terminal and are stored on the server.
 - **Storno** creates a reversing transaction and marks the original `stornoed`. Refused if it would make the balance negative or if already stornoed.
-- **Beep:** `ToneGenerator`, plus a different low tone on errors.
+- **Beep:** generated in the app (ToneSynth), buzzer waveform like a card terminal: one short beep when the card is read, one longer beep when approved, three lower beeps when refused. (Changed from `ToneGenerator`, which cut tones off.)
+- **Repeat charge:** the result screen has "One more like this", which starts a new charge for the same amount at once.
+- **Card suggestions:** on "Card not registered" the phone can send the UID to the server (`POST /card-suggestions`). Admins see them under Suggested cards, copy the UID or add it as a card in one step; adding the card clears the suggestion.
 
 ## Left to the builder
 Package names, exact file layout, DB column types, minor visual details not shown in the sketch, error copy for edge cases.
