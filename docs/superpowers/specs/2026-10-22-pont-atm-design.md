@@ -47,5 +47,15 @@ A terminal can run as a sign-in / sign-out point instead of an ATM. Points are e
 - **Admin:** a Check-in page with the rules, a live preview table (computed by the server), who is inside now (with sign out / discard), and recent visits.
 - **Idempotency:** each tap carries a key; the phone re-uses it when the same card is re-tapped after a lost connection.
 
+### Zones and point types (added 2026-10-22, same day, requested by the user)
+- **Rules belong to a zone**, not to the whole system. Admins create zones (name + the full rule set above). A default zone "Main area" always exists. The 24 h allowance is per card **per zone**.
+- **Each check-in terminal is assigned to a zone** and has a **point type**: `in` (sign-in only), `out` (sign-out only) or `toggle` (default; in if outside, out if inside).
+- **A visit belongs to the zone where it began.** Checking out always uses that zone's rules, whichever terminal is used. A card is inside at most one zone at a time.
+- **Behavior by point type** (the visit's zone supplies lock-out and longest stay):
+  - Sign-in point: not inside -> check in (zone of the terminal). Inside and within the lock-out -> `cooldown`. Inside for longer than the longest stay -> the old visit expires with no points and a new check-in starts (`expired_in`). Otherwise inside -> `already_in`: nothing changes.
+  - Sign-out point: not inside -> `not_in`: nothing changes. Inside within the lock-out -> `cooldown`. Inside for longer than the longest stay -> the visit expires with no points, no new check-in (`expired_out`). Otherwise check out.
+  - Toggle point: as before.
+- The phone shows the zone name and what the point does ("Tap to sign in" / "Tap to sign out" / "Tap your card"). The admin site shows zone and point type per terminal, and zone per visit.
+
 ## Left to the builder
 Package names, exact file layout, DB column types, minor visual details not shown in the sketch, error copy for edge cases.
