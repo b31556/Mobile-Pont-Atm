@@ -35,6 +35,10 @@ create table if not exists transactions(
   idempotency_key text, created_at text not null
 );
 create unique index if not exists tx_idem on transactions(terminal_id, idempotency_key) where idempotency_key is not null;
+create table if not exists balance_adjustments(
+  id text primary key, card_id text not null references cards(id), delta integer not null,
+  staff_id text, created_at text not null
+);
 create table if not exists presets(
   terminal_id text not null references terminals(id), value integer not null,
   primary key(terminal_id, value)

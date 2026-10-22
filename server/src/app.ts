@@ -5,8 +5,9 @@ import type { Db } from './db.js';
 import { registerAuth } from './auth.js';
 import { registerStaff } from './routes/staff.js';
 import { registerTerminals } from './routes/terminals.js';
+import { registerCards } from './routes/cards.js';
 
-export interface AppOptions { db: Db; jwtSecret: string }
+export interface AppOptions { db: Db; jwtSecret: string; dataDir?: string }
 
 export function buildApp(opts: AppOptions): FastifyInstance {
   const app = Fastify({ logger: false });
@@ -16,6 +17,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   registerAuth(app);
   registerStaff(app);
   registerTerminals(app);
+  registerCards(app, opts.dataDir ?? './data');
   app.get('/health', async () => ({ ok: true }));
   return app;
 }
