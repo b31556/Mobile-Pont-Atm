@@ -74,6 +74,10 @@ async function load() {
     state.data = { cards, all, tx };
   } else if (p === 'terminals') state.data = { terminals: await api('GET', '/terminals') };
   else if (p === 'txns') state.data = { tx: await api('GET', '/transactions?limit=100') };
+  else if (p === 'presence') {
+    const [settings, sessions] = await Promise.all([api('GET', '/presence/settings'), api('GET', '/presence/sessions')]);
+    state.data = { settings, sessions };
+  }
   else state.data = { staff: await api('GET', '/staff') };
 }
 async function refresh() { try { await load(); } catch (e) { if (token) state.toast = e.message; } render(); }
@@ -93,7 +97,7 @@ function loginView() {
 function shell(inner) {
   const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id}">${l}${id === 'cards' && state.suggestions.length ? `<span class="badge" title="Suggested cards">${state.suggestions.length}</span>` : ''}</button>`;
   return `<div class="adm"><aside class="side"><div class="brand"><span class="coin">P</span>Pont admin</div>
-    ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
+    ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('presence', 'Check-in')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
     <div class="me"><button data-act="signout">Sign out</button></div></aside>
     <div class="pane">${inner}</div></div>${state.drawer ? drawerView() : ''}${state.modal ? modalView() : ''}
     ${state.toast ? `<div class="atoast" role="status">${esc(state.toast)}</div>` : ''}`;
@@ -129,17 +133,91 @@ function suggestionsPanel() {
       <button class="btn line sm" data-act="dismiss" data-uid="${esc(x.uid)}" aria-label="Dismiss ${esc(x.uid)}">Dismiss</button></span></div>`).join('')}</section>`;
 }
 
+const PREVIEW_MINUTES = [5, 10, 12, 15, 20, 30, 45, 60, 90, 120, 240, 480];
+const ROUNDING_LABELS = {
+  down: 'Round down: only full blocks count',
+  up: 'Round up: any started block counts',
+  nearest: 'Round to nearest: half a block rounds up',
+  prorata: 'Exact: pay per minute, rounded to whole points',
+};
+
+function presencePane() {
+  const { settings: c, sessions } = state.data;
+  if (!c) return '';
+  const field = (id, label, value, hint, extra = '') => `<label class="field"><span>${label}</span><input id="${id}" type="number" min="0" step="1" value="${value ?? ''}" ${extra}>${hint ? `<small>${hint}</small>` : ''}</label>`;
+  const inside = sessions.inside.length ? sessions.inside.map(x => `<tr><td><div class="hold">${avatar({ ...x.card, hasPhoto: false })}${esc(x.card.name)}</div></td>
+      <td>${esc(when(x.inAt))}<div class="subnote">${esc(x.terminal)}</div></td><td class="num">${x.minutes} min${x.overdue ? ' <span class="pill bad">Overdue</span>' : ''}</td>
+      <td class="num">${x.overdue ? '—' : '+' + x.wouldEarn}</td>
+      <td><div class="rowbtns"><button class="btn line sm" data-act="presenceclose" data-id="${x.id}" data-award="1">Sign out</button><button class="btn line sm" data-act="presenceclose" data-id="${x.id}" data-award="0">Discard</button></div></td></tr>`).join('')
+    : '<tr><td colspan="5" class="empty">Nobody is signed in right now.</td></tr>';
+  const recent = sessions.recent.length ? sessions.recent.map(x => `<tr><td><div class="hold">${avatar({ ...x.card, hasPhoto: false })}${esc(x.card.name)}</div></td>
+      <td>${esc(when(x.inAt))}</td><td>${x.outAt ? esc(when(x.outAt)) : '—'}<div class="subnote">${esc(x.terminal)}</div></td>
+      <td class="num">${x.minutes ?? '—'}${x.minutes != null ? ' min' : ''}</td><td class="num">${x.points ? '+' + x.points : '0'}</td>
+      <td>${x.status === 'closed' ? '<span class="pill ok">Signed out</span>' : x.status === 'expired' ? '<span class="pill bad">Forgotten</span>' : '<span class="pill mute">Discarded</span>'}</td></tr>`).join('')
+    : '<tr><td colspan="6" class="empty">No visits yet.</td></tr>';
+  return `<div class="ph"><div><h1>Check-in</h1><p>Points for time spent inside. The rules apply to every terminal set to Check-in mode.</p></div><span class="sp"></span>
+      <button class="btn line" data-act="refresh">Refresh</button></div>
+    <div class="twocol">
+      <form class="panel" id="rules" autocomplete="off"><h2>Rules</h2>
+        <div class="grid2">
+          ${field('r-points', 'Points per block', c.pointsPerBlock, '', 'min="1"')}
+          ${field('r-block', 'Block length (minutes)', c.blockMinutes, '', 'min="1"')}
+        </div>
+        <label class="field"><span>Partial blocks</span><select id="r-round">${Object.entries(ROUNDING_LABELS).map(([v, l]) => `<option value="${v}"${c.rounding === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+        <div class="grid2">
+          ${field('r-min', 'Minimum stay (minutes)', c.minMinutes, 'Shorter visits earn nothing')}
+          ${field('r-stay', 'Longest stay (hours)', c.maxStayHours, 'A visit longer than this earns nothing', 'min="1"')}
+          ${field('r-visit', 'Max points per visit', c.maxPointsVisit, 'Leave empty for no limit', 'min="1" placeholder="No limit"')}
+          ${field('r-day', 'Max points per 24 hours', c.maxPoints24h, 'Per card, rolling. Empty for no limit', 'min="1" placeholder="No limit"')}
+          ${field('r-lock', 'Re-tap lock-out (seconds)', c.cooldownSeconds, 'A tap this soon after checking in changes nothing')}
+        </div>
+        <p class="err" id="r-err" role="alert"></p>
+        <button class="btn green" type="submit">Save rules</button>
+      </form>
+      <section class="panel"><h2>What a visit earns</h2><p class="hint">Calculated by the server from the rules as you type. The 24-hour limit isn’t included.</p>
+        <table class="mini-table"><thead><tr><th>Stay</th><th>Points</th></tr></thead><tbody id="preview"></tbody></table></section>
+    </div>
+    <h2 class="sect">Inside now</h2>
+    <div class="tw"><table><thead><tr><th>Holder</th><th>Since</th><th>Time inside</th><th>Would earn</th><th></th></tr></thead><tbody>${inside}</tbody></table></div>
+    <h2 class="sect">Recent visits</h2>
+    <div class="tw"><table><thead><tr><th>Holder</th><th>In</th><th>Out</th><th>Time</th><th>Points</th><th></th></tr></thead><tbody>${recent}</tbody></table></div>`;
+}
+
+/** The rules as currently typed in the form (not yet saved). Empty caps mean no limit. */
+function draftRules() {
+  const n = id => { const v = document.getElementById(id).value.trim(); return v === '' ? null : Number(v); };
+  return { pointsPerBlock: n('r-points'), blockMinutes: n('r-block'), rounding: document.getElementById('r-round').value, minMinutes: n('r-min'),
+    maxPointsVisit: n('r-visit'), maxPoints24h: n('r-day'), maxStayHours: n('r-stay'), cooldownSeconds: n('r-lock') };
+}
+
+let previewTimer = null, previewSeq = 0;
+function refreshPreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    const body = document.getElementById('preview'); if (!body || state.page !== 'presence') return;
+    const seq = ++previewSeq;
+    try {
+      const rows = await api('POST', '/presence/preview', { settings: draftRules(), minutes: PREVIEW_MINUTES });
+      if (seq !== previewSeq || !document.getElementById('preview')) return;
+      body.innerHTML = rows.map(r => `<tr><td>${r.minutes < 60 ? r.minutes + ' min' : (r.minutes / 60) + ' h'}</td><td class="num">${r.awarded}${r.cappedBy === 'visit' ? ' <span class="pill amber">visit limit</span>' : ''}</td></tr>`).join('');
+    } catch (e) {
+      if (seq === previewSeq && document.getElementById('preview')) document.getElementById('preview').innerHTML = `<tr><td colspan="2" class="err">${esc(e.message)}</td></tr>`;
+    }
+  }, 150);
+}
+
 function terminalsPane() {
   const list = state.data.terminals || [];
-  return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. Charges and stornos are recorded under its name.</p></div><span class="sp"></span>
+  return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. In ATM mode it gives points for an amount; in Check-in mode it signs people in and out (set the rules under Check-in). A phone follows a mode change within about 30 seconds.</p></div><span class="sp"></span>
     <button class="btn green" data-act="newterm">Pair a phone</button></div>
-    <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Phone</th><th>App</th><th>Given today</th><th></th></tr></thead><tbody>
+    <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Mode</th><th>Phone</th><th>App</th><th>Given today</th><th></th></tr></thead><tbody>
     ${list.length ? list.map(t => `<tr><td><b>${esc(t.name)}</b><div style="font-size:12px;color:var(--ink-3)">${esc(t.place)}</div></td>
       <td>${t.online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline</span>'}<div style="font-size:12px;color:var(--ink-3)">${t.lastSeen ? esc(when(t.lastSeen)) : 'Never seen'}</div></td>
+      <td><select class="modesel" data-mode-for="${t.id}" aria-label="Mode of ${esc(t.name)}"><option value="atm"${t.mode === 'atm' ? ' selected' : ''}>ATM</option><option value="presence"${t.mode === 'presence' ? ' selected' : ''}>Check-in</option></select></td>
       <td style="color:var(--ink-2)">${esc(t.device || '—')}</td>
       <td class="mono">${esc(t.appVersion || '—')}</td><td class="num">${t.givenToday}</td>
       <td><div class="rowbtns"><button class="btn line sm" data-act="newcode" data-id="${t.id}">New code</button><button class="btn line sm" data-act="revoke" data-id="${t.id}" data-name="${esc(t.name)}">Revoke</button></div></td></tr>`).join('')
-      : '<tr><td colspan="6" class="empty">No terminals yet. Pair the first phone.</td></tr>'}
+      : '<tr><td colspan="7" class="empty">No terminals yet. Pair the first phone.</td></tr>'}
     </tbody></table></div>`;
 }
 
@@ -149,7 +227,7 @@ function txnsPane() {
     <div class="tw"><table><thead><tr><th>Time</th><th>ID</th><th>Holder</th><th>Points</th><th>Terminal</th><th>Operator</th><th>Status</th><th></th></tr></thead><tbody>
     ${tx.length ? tx.map(t => `<tr><td>${esc(when(t.createdAt))}</td><td class="mono">T-${t.id}</td>
       <td><div class="hold">${avatar({ ...t.card, hasPhoto: false })}${esc(t.card.name)}</div></td>
-      <td class="num ${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}</td><td>${esc(t.terminal || '—')}</td><td>${esc(t.operator || '—')}</td>
+      <td class="num ${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}${t.kind === 'presence' ? `<div class="subnote">Check-out · ${esc(t.note || '')}</div>` : ''}</td><td>${esc(t.terminal || '—')}</td><td>${esc(t.operator || '—')}</td>
       <td>${t.type === 'storno' ? `<span class="pill amber">Storno of T-${t.ref}</span>` : t.status === 'stornoed' ? '<span class="pill mute">Stornoed</span>' : '<span class="pill ok">Completed</span>'}</td>
       <td>${t.type === 'give' && t.status === 'ok' ? `<button class="btn line sm" data-act="storno" data-id="${t.id}">Storno</button>` : ''}</td></tr>`).join('')
       : '<tr><td colspan="8" class="empty">No transactions yet.</td></tr>'}
@@ -218,10 +296,11 @@ function modalView() {
 function render() {
   const focus = document.activeElement?.id, pos = document.activeElement?.selectionStart;
   if (!token) { root.innerHTML = loginView(); return; }
-  const pane = { cards: cardsPane, terminals: terminalsPane, txns: txnsPane, staff: staffPane }[state.page]();
+  const pane = { cards: cardsPane, terminals: terminalsPane, presence: presencePane, txns: txnsPane, staff: staffPane }[state.page]();
   root.innerHTML = shell(pane);
   if (focus === 'q') { const q = $('#q'); q.focus(); q.setSelectionRange(pos, pos); }
   loadPhotos();
+  if (state.page === 'presence') refreshPreview();
 }
 
 /* ---------- events ---------- */
@@ -238,6 +317,10 @@ root.addEventListener('submit', async e => {
       token = r.token; try { sessionStorage.setItem('pont-token', token); } catch {}
       state.loginError = ''; state.page = 'cards'; await refresh();
     } catch (err) { state.loginError = err.message; render(); }
+  } else if (f.id === 'rules') {
+    const err = document.getElementById('r-err'); err.textContent = '';
+    try { await api('PUT', '/presence/settings', draftRules()); await refresh(); toast('Rules saved.'); }
+    catch (ex) { err.textContent = ex.message; }
   } else if (f.id === 'termform') {
     await guard(async () => {
       const fd = new FormData(f);
@@ -255,8 +338,13 @@ root.addEventListener('submit', async e => {
 
 root.addEventListener('input', e => {
   if (e.target.id === 'q') { state.q = e.target.value; refresh(); }
+  if (e.target.closest && e.target.closest('#rules')) refreshPreview();
 });
-root.addEventListener('change', e => {
+root.addEventListener('change', async e => {
+  if (e.target.closest && e.target.closest('#rules')) refreshPreview();
+  if (e.target.dataset && e.target.dataset.modeFor) {
+    await guard(async () => { const t = await api('PATCH', '/terminals/' + e.target.dataset.modeFor, { mode: e.target.value }); await refresh(); toast(t.name + ' is now in ' + (t.mode === 'presence' ? 'Check-in' : 'ATM') + ' mode.'); });
+  }
   if (e.target.id === 'd-photo') {
     const file = e.target.files[0];
     if (file) { $('#dprev').innerHTML = `<img class="av" style="width:64px;height:64px;object-fit:cover" alt="Chosen photo" src="${URL.createObjectURL(file)}">`; }
@@ -298,6 +386,11 @@ root.addEventListener('click', async e => {
         state.drawer = null; await refresh(); toast('Saved.');
       } catch (ex) { err.textContent = ex.message; }
       break; }
+    case 'refresh': await refresh(); break;
+    case 'presenceclose': await guard(async () => {
+      const r = await api('POST', `/presence/sessions/${id}/close`, { award: el.dataset.award === '1' });
+      await refresh(); toast(el.dataset.award === '1' ? 'Signed out' + (r.points ? ' · +' + r.points + ' points.' : ' · no points earned.') : 'Visit discarded.');
+    }); break;
     case 'newterm': state.modal = { kind: 'newterm' }; render(); break;
     case 'newcode': await guard(async () => { const t = state.data.terminals.find(x => x.id === id); const r = await api('POST', `/terminals/${id}/pairing-code`); state.modal = { kind: 'code', name: t.name, code: r.pairingCode }; render(); }); break;
     case 'revoke': state.modal = { kind: 'revoke', id, name: el.dataset.name }; render(); break;
