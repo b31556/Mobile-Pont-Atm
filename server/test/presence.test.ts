@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeApp, makeTerminal, auth, makeOperator } from './helpers.js';
 import { openDb } from '../src/db.js';
-import { DEFAULT_SETTINGS } from '../src/presence.js';
+import { DEFAULT_SETTINGS, defaultZone } from '../src/presence.js';
 
 const UID = '04:A2:3B:1C';
 
@@ -21,10 +21,17 @@ async function setup() {
     ctx.app.inject({ method: 'POST', url: '/presence/tap', headers: auth(t.terminalToken), payload: { cardUid: uid, idempotencyKey: key } });
   /** Pretend the open visit began [minutes] ago. */
   const backdate = (minutes: number) => ctx.db.prepare("update presence_sessions set in_at=? where status='open'").run(new Date(Date.now() - minutes * 60000).toISOString());
-  const put = (settings: object) => ctx.app.inject({ method: 'PUT', url: '/presence/settings', headers: auth(ctx.adminToken), payload: { ...DEFAULT_SETTINGS, ...settings } });
+  const zoneId = defaultZone(ctx.db).id;
+  /** Changes the rules of the default zone. */
+  const put = (settings: object) => ctx.app.inject({ method: 'PUT', url: `/zones/${zoneId}`, headers: auth(ctx.adminToken), payload: { settings: { ...DEFAULT_SETTINGS, ...settings } } });
+  const makeZone = async (name: string, settings: object = {}) =>
+    (await ctx.app.inject({ method: 'POST', url: '/zones', headers: auth(ctx.adminToken), payload: { name, settings: { ...DEFAULT_SETTINGS, ...settings } } })).json();
+  /** Sets mode, zone and point type of a terminal the way the admin site does. */
+  const setup_ = (t: { terminalId: string }, body: { mode?: string; zoneId?: string; direction?: string }) =>
+    ctx.app.inject({ method: 'PATCH', url: `/terminals/${t.terminalId}`, headers: auth(ctx.adminToken), payload: body });
   const balance = () => (ctx.db.prepare('select balance from cards where id=?').get(anna.id) as { balance: number }).balance;
   const count = (sql: string) => (ctx.db.prepare(sql).get() as { c: number }).c;
-  return { ...ctx, door, back, bar, anna, tap, backdate, put, balance, count };
+  return { ...ctx, door, back, bar, anna, tap, backdate, put, balance, count, zoneId, makeZone, assign: setup_ };
 }
 
 describe('checking in and out', () => {
@@ -241,29 +248,31 @@ describe('refusals', () => {
 });
 
 describe('admin: settings, preview, who is inside', () => {
-  it('settings start as the defaults, save, and refuse nonsense with a message', async () => {
-    const { app, adminToken, put } = await setup();
-    const get = () => app.inject({ method: 'GET', url: '/presence/settings', headers: auth(adminToken) });
-    expect((await get()).json()).toEqual(DEFAULT_SETTINGS);
+  it('the default zone starts with the default rules; rules save, and nonsense is refused with a message', async () => {
+    const { app, adminToken, put, zoneId } = await setup();
+    const rules = async () => ((await app.inject({ method: 'GET', url: '/zones', headers: auth(adminToken) })).json() as { id: string; settings: object }[]).find(z => z.id === zoneId)!.settings;
+    expect(await rules()).toEqual(DEFAULT_SETTINGS);
     expect((await put({ pointsPerBlock: 10, maxPoints24h: 100 })).statusCode).toBe(200);
-    expect((await get()).json()).toMatchObject({ pointsPerBlock: 10, maxPoints24h: 100 });
+    expect(await rules()).toMatchObject({ pointsPerBlock: 10, maxPoints24h: 100 });
     const bad = await put({ blockMinutes: 0 });
     expect(bad.statusCode).toBe(400);
     expect(bad.json().error).toContain('blockMinutes');
-    expect((await get()).json().blockMinutes).toBe(12);
+    expect((await rules() as { blockMinutes: number }).blockMinutes).toBe(12);
   });
 
-  it('only admins touch settings', async () => {
-    const { app, db, door } = await setup();
+  it('only admins touch zones', async () => {
+    const { app, db, door, zoneId } = await setup();
     const op = await makeOperator(app, db);
     for (const token of [door.terminalToken, op.token]) {
-      expect((await app.inject({ method: 'GET', url: '/presence/settings', headers: auth(token) })).statusCode).toBe(403);
-      expect((await app.inject({ method: 'PUT', url: '/presence/settings', headers: auth(token), payload: DEFAULT_SETTINGS })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'GET', url: '/zones', headers: auth(token) })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'POST', url: '/zones', headers: auth(token), payload: { name: 'x' } })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'PUT', url: `/zones/${zoneId}`, headers: auth(token), payload: { name: 'x' } })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'DELETE', url: `/zones/${zoneId}`, headers: auth(token) })).statusCode).toBe(403);
     }
   });
 
   it('preview uses the saved settings, or a draft without saving it', async () => {
-    const { app, adminToken, put } = await setup();
+    const { app, adminToken, put, makeZone } = await setup();
     const preview = (payload: object) => app.inject({ method: 'POST', url: '/presence/preview', headers: auth(adminToken), payload });
     expect((await preview({ minutes: [5, 12, 50] })).json()).toEqual([
       { minutes: 5, raw: 0, awarded: 0, cappedBy: null }, { minutes: 12, raw: 8, awarded: 8, cappedBy: null }, { minutes: 50, raw: 32, awarded: 32, cappedBy: null }]);
@@ -271,6 +280,9 @@ describe('admin: settings, preview, who is inside', () => {
     expect(draft).toEqual([{ minutes: 50, raw: 40, awarded: 30, cappedBy: 'visit' }]);
     await put({ pointsPerBlock: 1 });
     expect((await preview({ minutes: [12] })).json()[0].awarded).toBe(1);
+    const gym = await makeZone('Gym', { pointsPerBlock: 3 });
+    expect((await preview({ minutes: [12], zoneId: gym.id })).json()[0].awarded).toBe(3);
+    expect((await preview({ minutes: [12], zoneId: 'nope' })).statusCode).toBe(404);
     expect((await preview({ minutes: [12], settings: { ...DEFAULT_SETTINGS, blockMinutes: 0 } })).statusCode).toBe(400);
     expect((await preview({ minutes: 'x' })).statusCode).toBe(400);
   });
@@ -309,7 +321,7 @@ describe('terminal mode', () => {
   it('a phone reads its mode and name; an admin changes the mode', async () => {
     const { app, adminToken, bar } = await setup();
     const config = () => app.inject({ method: 'GET', url: '/terminal/config', headers: auth(bar.terminalToken) });
-    expect((await config()).json()).toEqual({ mode: 'atm', name: 'Bar' });
+    expect((await config()).json()).toEqual({ mode: 'atm', name: 'Bar', direction: 'toggle', zoneName: null });
     const patch = await app.inject({ method: 'PATCH', url: `/terminals/${bar.terminalId}`, headers: auth(adminToken), payload: { mode: 'presence' } });
     expect(patch.statusCode).toBe(200);
     expect((await config()).json().mode).toBe('presence');
@@ -342,9 +354,225 @@ describe('upgrading an existing database', () => {
     old.close();
     const db = openDb(path);
     const cols = (t: string) => (db.prepare(`pragma table_info(${t})`).all() as { name: string }[]).map(c => c.name);
-    expect(cols('terminals')).toContain('mode');
-    expect(cols('transactions')).toEqual(expect.arrayContaining(['kind', 'note']));
+    expect(cols('terminals')).toEqual(expect.arrayContaining(['mode', 'zone_id', 'direction']));
+    expect(cols('transactions')).toEqual(expect.arrayContaining(['kind', 'note', 'zone_id']));
     expect((db.prepare("select mode from terminals where id='t1'").get() as { mode: string }).mode).toBe('atm');
     expect(() => openDb(path)).not.toThrow();
+  });
+});
+
+describe('zones', () => {
+  it('lists the default zone, creates, renames, and refuses duplicates and nonsense', async () => {
+    const { app, adminToken, makeZone, zoneId } = await setup();
+    const list = async () => (await app.inject({ method: 'GET', url: '/zones', headers: auth(adminToken) })).json();
+    expect((await list()).map((z: { name: string }) => z.name)).toEqual(['Main area']);
+    const gym = await makeZone('Gym', { pointsPerBlock: 3 });
+    expect(gym).toMatchObject({ name: 'Gym', settings: { pointsPerBlock: 3 } });
+    const dup = await app.inject({ method: 'POST', url: '/zones', headers: auth(adminToken), payload: { name: 'gym' } });
+    expect(dup.statusCode).toBe(409);
+    expect((await app.inject({ method: 'POST', url: '/zones', headers: auth(adminToken), payload: { name: '  ' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/zones', headers: auth(adminToken), payload: { name: 'Bad', settings: { ...DEFAULT_SETTINGS, rounding: 'x' } } })).statusCode).toBe(400);
+    const ren = await app.inject({ method: 'PUT', url: `/zones/${gym.id}`, headers: auth(adminToken), payload: { name: 'Gym floor' } });
+    expect(ren.json()).toMatchObject({ name: 'Gym floor', settings: { pointsPerBlock: 3 } });
+    expect((await app.inject({ method: 'PUT', url: `/zones/${gym.id}`, headers: auth(adminToken), payload: { name: 'Main area' } })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'PUT', url: '/zones/nope', headers: auth(adminToken), payload: { name: 'x' } })).statusCode).toBe(404);
+    void zoneId;
+  });
+
+  it('a new zone without rules gets the defaults', async () => {
+    const { app, adminToken } = await setup();
+    const res = await app.inject({ method: 'POST', url: '/zones', headers: auth(adminToken), payload: { name: 'Plain' } });
+    expect(res.json().settings).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('cannot be deleted while a terminal uses it or a visit happened in it; can when unused', async () => {
+    const { app, adminToken, door, tap, makeZone, assign } = await setup();
+    const gym = await makeZone('Gym');
+    await assign(door, { zoneId: gym.id });
+    const used = await app.inject({ method: 'DELETE', url: `/zones/${gym.id}`, headers: auth(adminToken) });
+    expect(used.statusCode).toBe(409);
+    expect(used.json().error).toMatch(/terminal/);
+    await tap(door);
+    await assign(door, { zoneId: (await app.inject({ method: 'GET', url: '/zones', headers: auth(adminToken) })).json()[0].id });
+    const visited = await app.inject({ method: 'DELETE', url: `/zones/${gym.id}`, headers: auth(adminToken) });
+    expect(visited.statusCode).toBe(409);
+    expect(visited.json().error).toMatch(/visit/);
+    const spare = await makeZone('Spare');
+    expect((await app.inject({ method: 'DELETE', url: `/zones/${spare.id}`, headers: auth(adminToken) })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'DELETE', url: `/zones/${spare.id}`, headers: auth(adminToken) })).statusCode).toBe(404);
+  });
+
+  it('the last zone cannot be deleted', async () => {
+    const { app, adminToken, zoneId } = await setup();
+    const res = await app.inject({ method: 'DELETE', url: `/zones/${zoneId}`, headers: auth(adminToken) });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('terminals are assigned a zone and a point type; bad values are refused; config tells the phone', async () => {
+    const { app, adminToken, bar, makeZone, assign } = await setup();
+    const gym = await makeZone('Gym');
+    expect((await assign(bar, { mode: 'presence', zoneId: gym.id, direction: 'in' })).statusCode).toBe(200);
+    const list = (await app.inject({ method: 'GET', url: '/terminals', headers: auth(adminToken) })).json();
+    expect(list.find((t: { name: string }) => t.name === 'Bar')).toMatchObject({ mode: 'presence', zoneId: gym.id, zoneName: 'Gym', direction: 'in' });
+    const config = (await app.inject({ method: 'GET', url: '/terminal/config', headers: auth(bar.terminalToken) })).json();
+    expect(config).toEqual({ mode: 'presence', name: 'Bar', direction: 'in', zoneName: 'Gym' });
+    expect((await assign(bar, { direction: 'sideways' })).statusCode).toBe(400);
+    expect((await assign(bar, { zoneId: 'nope' })).statusCode).toBe(404);
+  });
+
+  it('switching a terminal to check-in without choosing a zone puts it in the default zone', async () => {
+    const { app, adminToken, bar, assign, zoneId } = await setup();
+    await assign(bar, { mode: 'presence' });
+    const t = (await app.inject({ method: 'GET', url: '/terminals', headers: auth(adminToken) })).json().find((x: { name: string }) => x.name === 'Bar');
+    expect(t).toMatchObject({ zoneId, direction: 'toggle' });
+  });
+});
+
+describe('rules are per zone', () => {
+  it('a visit is paid by the rules of the zone where it began, whichever terminal signs out', async () => {
+    const { door, back, tap, backdate, makeZone, assign } = await setup();
+    const gym = await makeZone('Gym', { pointsPerBlock: 3 });
+    await assign(door, { zoneId: gym.id });             // Door is in the Gym; Back is in the default zone (8 per 12 min)
+    await tap(door); backdate(36);
+    expect((await tap(back)).json()).toMatchObject({ action: 'out', points: 9, zone: { name: 'Gym' } });
+  });
+
+  it('the 24 h allowance is separate in each zone', async () => {
+    const { door, back, tap, backdate, put, makeZone, assign } = await setup();
+    await put({ maxPoints24h: 30 });
+    const gym = await makeZone('Gym', { maxPoints24h: 30 });
+    await assign(back, { zoneId: gym.id });
+    await tap(door); backdate(36); expect((await tap(door)).json()).toMatchObject({ points: 24, today: { earned: 24, max: 30 } });
+    await tap(back); backdate(36);
+    expect((await tap(back)).json()).toMatchObject({ points: 24, cappedBy: null, today: { earned: 24, max: 30 } });
+  });
+
+  it('caps, rounding and lock-out come from the visit’s zone', async () => {
+    const { door, tap, backdate, makeZone, assign } = await setup();
+    const strict = await makeZone('Strict', { maxStayHours: 1, cooldownSeconds: 0, rounding: 'up' });
+    await assign(door, { zoneId: strict.id });
+    await tap(door); backdate(0);
+    expect((await tap(door)).json()).toMatchObject({ action: 'out', minutes: 0 }); // lock-out 0 in this zone
+    await tap(door); backdate(61);
+    expect((await tap(door)).json().action).toBe('expired_in');                   // longest stay 1 h in this zone
+  });
+
+  it('the visit and the award remember the zone', async () => {
+    const { app, adminToken, door, tap, backdate, db, makeZone, assign } = await setup();
+    const gym = await makeZone('Gym');
+    await assign(door, { zoneId: gym.id });
+    await tap(door); backdate(36); await tap(door);
+    expect((db.prepare('select zone_id from presence_sessions').get() as { zone_id: string }).zone_id).toBe(gym.id);
+    expect((db.prepare("select zone_id from transactions where kind='presence'").get() as { zone_id: string }).zone_id).toBe(gym.id);
+    const rows = (await app.inject({ method: 'GET', url: '/transactions', headers: auth(adminToken) })).json();
+    expect(rows[0]).toMatchObject({ kind: 'presence', zone: 'Gym' });
+    const sessions = (await app.inject({ method: 'GET', url: '/presence/sessions', headers: auth(adminToken) })).json();
+    expect(sessions.recent[0].zone).toBe('Gym');
+  });
+
+  it('who is inside shows the zone and what they would earn under its rules', async () => {
+    const { app, adminToken, door, tap, backdate, makeZone, assign } = await setup();
+    const gym = await makeZone('Gym', { pointsPerBlock: 3 });
+    await assign(door, { zoneId: gym.id });
+    await tap(door); backdate(36);
+    const inside = (await app.inject({ method: 'GET', url: '/presence/sessions', headers: auth(adminToken) })).json().inside[0];
+    expect(inside).toMatchObject({ zone: 'Gym', wouldEarn: 9 });
+  });
+});
+
+describe('point types', () => {
+  async function gate() {
+    const c = await setup();
+    await c.assign(c.door, { direction: 'in' });
+    await c.assign(c.back, { direction: 'out' });
+    return c;
+  }
+
+  it('a sign-in point signs in; tapping again later says already checked in and changes nothing', async () => {
+    const { door, tap, backdate, count, balance } = await gate();
+    expect((await tap(door)).json().action).toBe('in');
+    backdate(40);
+    const again = await tap(door);
+    expect(again.json()).toMatchObject({ action: 'already_in', zone: { name: 'Main area' } });
+    expect(again.json().inAt).toBeTruthy();
+    expect(count("select count(*) c from presence_sessions")).toBe(1);
+    expect(count("select count(*) c from presence_sessions where status='open'")).toBe(1);
+    expect(balance()).toBe(46);
+  });
+
+  it('a sign-in point inside the lock-out says cooldown', async () => {
+    const { door, tap } = await gate();
+    await tap(door);
+    expect((await tap(door)).json().action).toBe('cooldown');
+  });
+
+  it('a sign-out point with nobody inside says not_in and changes nothing', async () => {
+    const { back, tap, count } = await gate();
+    const res = await tap(back);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ action: 'not_in', points: 0, card: { name: 'Anna Kovács' } });
+    expect(res.json().inAt).toBeUndefined();
+    expect(count("select count(*) c from presence_sessions")).toBe(0);
+  });
+
+  it('a sign-out point signs out and pays', async () => {
+    const { door, back, tap, backdate, balance } = await gate();
+    await tap(door); backdate(36);
+    expect((await tap(back)).json()).toMatchObject({ action: 'out', points: 24 });
+    expect(balance()).toBe(70);
+  });
+
+  it('a sign-out point inside the lock-out says cooldown and does not sign out', async () => {
+    const { door, back, tap, count } = await gate();
+    await tap(door);
+    expect((await tap(back)).json().action).toBe('cooldown');
+    expect(count("select count(*) c from presence_sessions where status='open'")).toBe(1);
+  });
+
+  it('a forgotten visit at a sign-out point earns nothing and does not start a new visit', async () => {
+    const { back, door, tap, backdate, count, balance } = await gate();
+    await tap(door); backdate(13 * 60);
+    const res = await tap(back);
+    expect(res.json()).toMatchObject({ action: 'expired_out', points: 0, expiredMinutes: 780 });
+    expect(count("select count(*) c from presence_sessions where status='expired'")).toBe(1);
+    expect(count("select count(*) c from presence_sessions where status='open'")).toBe(0);
+    expect(balance()).toBe(46);
+  });
+
+  it('a forgotten visit at a sign-in point starts a fresh check-in', async () => {
+    const { door, tap, backdate } = await gate();
+    await tap(door); backdate(13 * 60);
+    expect((await tap(door)).json()).toMatchObject({ action: 'expired_in', expiredMinutes: 780 });
+  });
+
+  it('replaying a sign-out point tap returns the same result', async () => {
+    const { door, back, tap, backdate, balance } = await gate();
+    await tap(door); backdate(36);
+    await tap(back, UID, 'out1');
+    expect((await tap(back, UID, 'out1')).json()).toMatchObject({ action: 'out', points: 24 });
+    expect(balance()).toBe(70);
+  });
+
+  it('a toggle point does both', async () => {
+    const { door, tap, backdate, assign } = await gate();
+    await assign(door, { direction: 'toggle' });
+    expect((await tap(door)).json().action).toBe('in');
+    backdate(36);
+    expect((await tap(door)).json().action).toBe('out');
+  });
+
+  it('a sign-in point in a second zone does not move someone who is still inside the first', async () => {
+    const { door, back, tap, backdate, makeZone, assign } = await gate();
+    const gym = await makeZone('Gym');
+    await assign(back, { direction: 'in', zoneId: gym.id });
+    await tap(door); backdate(40);
+    expect((await tap(back)).json()).toMatchObject({ action: 'already_in', zone: { name: 'Main area' } });
+  });
+
+  it('a card tapped at a terminal with the wrong mode or a blocked card is still refused at gates', async () => {
+    const { app, adminToken, anna, bar, back, tap } = await gate();
+    expect((await tap(bar)).statusCode).toBe(409);
+    await app.inject({ method: 'PATCH', url: `/cards/${anna.id}`, headers: auth(adminToken), payload: { status: 'blocked' } });
+    expect((await tap(back)).statusCode).toBe(403);
   });
 });
