@@ -79,7 +79,7 @@ export function registerCharges(app: FastifyInstance) {
       join cards c on c.id=t.card_id left join staff s on s.id=t.operator_id
       ${own ? 'where t.terminal_id=?' : ''} order by t.id desc limit ?`).all(...(own ? [req.user.terminalId] : []), limit) as (TxRow & { card_name: string; operator_name: string | null })[];
     return rows.map(t => ({
-      id: t.id, type: t.type, amount: t.amount, status: t.status, ref: t.ref, createdAt: t.created_at,
+      id: t.id, type: t.type, amount: t.amount, status: t.status, ref: t.ref, createdAt: t.created_at, kind: (t as { kind?: string }).kind ?? 'atm', note: (t as { note?: string | null }).note ?? null,
       terminal: terminalName(t.terminal_id), operator: t.operator_name ?? terminalName(t.terminal_id),
       card: { id: t.card_id, name: t.card_name, photoUrl: `/cards/${t.card_id}/photo` },
     }));
