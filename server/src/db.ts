@@ -44,6 +44,11 @@ create table if not exists card_suggestions(
   uid text primary key, terminal_id text references terminals(id),
   first_seen text not null, last_seen text not null, count integer not null default 1
 );
+create table if not exists presence_settings(
+  id integer primary key check(id=1), points_per_block integer not null, block_minutes integer not null,
+  rounding text not null, min_minutes integer not null, max_points_visit integer, max_points_24h integer,
+  max_stay_hours integer not null, cooldown_seconds integer not null
+);
 create table if not exists presets(
   terminal_id text not null references terminals(id), value integer not null,
   primary key(terminal_id, value)
