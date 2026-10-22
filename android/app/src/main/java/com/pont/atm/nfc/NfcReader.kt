@@ -21,17 +21,17 @@ class NfcReader(private val activity: Activity) {
         else -> NfcStatus.Ready
     }
 
-    /** [onUid] is called on a background thread with the canonical UID string. */
+    /** [onUid] is called on a background thread with the canonical UID string. Safe to call when NFC is off. */
     fun enable(onUid: (String) -> Unit) {
-        adapter?.enableReaderMode(
+        runCatching { adapter?.enableReaderMode(
             activity,
             { tag: Tag -> formatUid(tag.id)?.let(onUid) },
             NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS,
             null,
-        )
+        ) }
     }
 
     fun disable() {
-        adapter?.disableReaderMode(activity)
+        runCatching { adapter?.disableReaderMode(activity) }
     }
 }

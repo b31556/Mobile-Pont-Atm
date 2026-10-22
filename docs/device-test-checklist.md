@@ -14,6 +14,8 @@ Phone model / Android version: ______________   Card(s): ______________   App bu
 - [ ] The UID on the "card not registered" screen matches the one that works after adding the card in admin
 - [ ] Tap a different brand of NFC tag or phone wallet card: it is refused or read as an unknown UID, never crashes
 - [ ] Hold the card on the back, then slide it: the app still reads it once
+- [ ] Keep the card against the phone through the progress bar and the result screen: Android's own "New tag collected" screen never appears
+- [ ] Tap a card while on the keypad (not waiting for a card): nothing happens, and no Android tag screen opens
 
 ## Charging
 - [ ] Keypad: type 8, press the green button, tap: +8, balance 10 → 18, holder photo correct, beep heard

@@ -91,11 +91,14 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
         }
     }
 
-    // The NFC reader is only on while the app waits for a card and is in the foreground.
+    // Reader mode stays on for as long as the app is in the foreground, not just while waiting for a card.
+    // Switching it off the moment a tag is read (while the card is still against the phone) lets Android
+    // see the card again and open its own "New tag collected" screen on top of the app. ChargeFlow ignores
+    // tags that arrive when it isn't waiting for one.
     val waiting = flowState is FlowState.WaitingForCard
-    LifecycleResumeEffect(waiting) {
+    LifecycleResumeEffect(Unit) {
         nfc = reader.status()
-        if (waiting) reader.enable { uid -> scope.launch { flow.onTag(uid) } }
+        reader.enable { uid -> scope.launch { flow.onTag(uid) } }
         onPauseOrDispose { reader.disable() }
     }
 
@@ -133,11 +136,9 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
                             onStorno = { id -> api.storno(id).also { noteResult(it) } },
                         )
                         else -> when (screen) {
-                            Screen.Pair -> PairScreen(session.baseUrl, busy, authError) { server, code ->
+                            Screen.Pair -> PairScreen(busy, authError) { code ->
                                 scope.launch {
                                     busy = true; authError = null
-                                    val url = server.trim().trimEnd('/').let { if (it.startsWith("http")) it else (if (BuildConfig.DEBUG) "http://" else "https://") + it }
-                                    session.baseUrl = url
                                     api.pair(code, Build.MODEL ?: "Android", BuildConfig.VERSION_NAME)
                                         .onSuccess { screen = Screen.Login }.onFailure { authError = it.message }
                                     busy = false

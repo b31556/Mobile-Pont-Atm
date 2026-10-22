@@ -21,10 +21,10 @@ android {
         versionName = "0.1.0"
     }
     buildTypes {
-        debug { buildConfigField("String", "DEFAULT_BASE_URL", "\"http://localhost:3000\"") }
+        debug { buildConfigField("String", "DEFAULT_BASE_URL", "\"http://your-machine.your-tailnet.ts.net:3000\"") }
         release {
             isMinifyEnabled = false
-            buildConfigField("String", "DEFAULT_BASE_URL", "\"https://pont.example\"")
+            buildConfigField("String", "DEFAULT_BASE_URL", "\"http://your-machine.your-tailnet.ts.net:3000\"")
         }
     }
     compileOptions {

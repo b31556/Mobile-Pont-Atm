@@ -56,17 +56,15 @@ private fun Field(value: String, onChange: (String) -> Unit, label: String, modi
 }
 
 @Composable
-fun PairScreen(serverUrl: String, busy: Boolean, error: String?, onPair: (server: String, code: String) -> Unit) {
-    var server by rememberSaveable { mutableStateOf(serverUrl) }
+fun PairScreen(busy: Boolean, error: String?, onPair: (code: String) -> Unit) {
     var code by rememberSaveable { mutableStateOf("") }
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Logo(); Spacer(Modifier.height(12.dp))
         Text("Pair this phone", style = PontType.display(32))
         Text("Ask an admin for a pairing code. They create it under Terminals on the admin site.", color = PontColors.Ink2)
-        Field(server, { server = it.trim() }, "Server address", keyboard = KeyboardType.Uri)
         Field(code, { code = it.filter(Char::isDigit).take(6) }, "6-digit code", keyboard = KeyboardType.NumberPassword)
         if (error != null) Text(error, color = PontColors.Red, fontWeight = FontWeight.SemiBold)
-        GoButton(if (busy) "Pairing…" else "Pair this phone", enabled = !busy && code.length == 6 && server.isNotBlank()) { onPair(server, code) }
+        GoButton(if (busy) "Pairing…" else "Pair this phone", enabled = !busy && code.length == 6) { onPair(code) }
     }
 }
 
