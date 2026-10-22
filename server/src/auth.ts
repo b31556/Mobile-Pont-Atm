@@ -50,6 +50,7 @@ export function registerAuth(app: FastifyInstance) {
     if (row.role === 'operator') {
       const t = app.db.prepare('select active from terminals where id=?').get(p.terminalId ?? '') as { active: number } | undefined;
       if (!t || !t.active) return unauthorized(reply, 'This phone was revoked');
+      app.db.prepare('update terminals set last_seen=?, last_operator=? where id=?').run(new Date().toISOString(), row.name, p.terminalId);
     }
     if (want && row.role !== want) return reply.code(403).send({ error: 'Not allowed' });
     req.user = { id: row.id, name: row.name, role: row.role, terminalId: p.terminalId };

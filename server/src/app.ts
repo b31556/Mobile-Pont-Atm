@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import type { Db } from './db.js';
 import { registerAuth } from './auth.js';
 import { registerStaff } from './routes/staff.js';
+import { registerTerminals } from './routes/terminals.js';
 
 export interface AppOptions { db: Db; jwtSecret: string }
 
@@ -14,6 +15,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 } });
   registerAuth(app);
   registerStaff(app);
+  registerTerminals(app);
   app.get('/health', async () => ({ ok: true }));
   return app;
 }
