@@ -41,7 +41,7 @@ create table if not exists transactions(
 create unique index if not exists tx_idem on transactions(terminal_id, idempotency_key) where idempotency_key is not null;
 create table if not exists balance_adjustments(
   id text primary key, card_id text not null references cards(id), delta integer not null,
-  staff_id text, created_at text not null
+  staff_id text, created_at text not null, balance_after integer, reason text
 );
 create table if not exists card_suggestions(
   uid text primary key, terminal_id text references terminals(id),
@@ -94,6 +94,8 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'terminals', 'zone_id', 'text references zones(id)');
   ensureColumn(db, 'terminals', 'direction', "text not null default 'toggle'");
   ensureColumn(db, 'transactions', 'zone_id', 'text');
+  ensureColumn(db, 'balance_adjustments', 'balance_after', 'integer');
+  ensureColumn(db, 'balance_adjustments', 'reason', 'text');
   ensureDefaultZone(db);
   return db;
 }

@@ -57,5 +57,8 @@ A terminal can run as a sign-in / sign-out point instead of an ATM. Points are e
   - Toggle point: as before.
 - The phone shows the zone name and what the point does ("Tap to sign in" / "Tap to sign out" / "Tap your card"). The admin site shows zone and point type per terminal, and zone per visit.
 
+### Admin grants and deductions in the transaction list (added 2026-10-22, requested by the user)
+Points an admin grants or takes away by hand are listed in the admin Transactions table (`type: adjust`, positive = grant, negative = deduction) with the admin's name, an optional reason (up to 200 characters) and the time. They are never shown to phones. They are stored in `balance_adjustments` (with the balance after), not in `transactions`, so they cannot be stornoed. Timestamps for charges, stornos, adjustments and check-ins are strictly increasing, so records made in the same millisecond keep their order.
+
 ## Left to the builder
 Package names, exact file layout, DB column types, minor visual details not shown in the sketch, error copy for edge cases.

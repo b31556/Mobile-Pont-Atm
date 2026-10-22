@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.js';
+import { stamp } from '../clock.js';
 import { normalizeUid } from '../uid.js';
 import { findCardByUid, type CardRow } from './cards.js';
 import { recordSuggestion } from './suggestions.js';
@@ -91,7 +92,7 @@ export function registerPresence(app: FastifyInstance) {
     }
     if (card.status === 'blocked') return { status: 403, body: { error: 'Card is blocked', code: 'card_blocked', card: { name: card.name, photoUrl: photoUrl(card.id) } } };
 
-    const now = new Date();
+    const now = stamp();
     const open = db.prepare("select * from presence_sessions where card_id=? and status='open'").get(card.id) as SessionRow | undefined;
     if (!open) {
       if (term.direction === 'out') return view('not_in', null, card, here);
@@ -229,8 +230,8 @@ export function registerPresence(app: FastifyInstance) {
     const result = db.transaction(() => {
       const s = db.prepare("select * from presence_sessions where id=? and status='open'").get(id) as SessionRow | undefined;
       if (!s) return null;
-      if (award) return checkOut(db, s, cardById(s.card_id), zoneOf(s), new Date(), null, null).points;
-      const now = new Date();
+      if (award) return checkOut(db, s, cardById(s.card_id), zoneOf(s), stamp(), null, null).points;
+      const now = stamp();
       db.prepare("update presence_sessions set status='discarded', out_at=?, minutes=?, points=0 where id=?")
         .run(now.toISOString(), Math.max(0, Math.floor((now.getTime() - Date.parse(s.in_at)) / 60000)), id);
       return 0;

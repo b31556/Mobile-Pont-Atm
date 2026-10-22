@@ -65,6 +65,17 @@ The app reads the card's UID (4, 7 or 10 bytes) and sends it to the server, whic
 
 **Phone caveat:** only phones with an NXP NFC chip can read MIFARE Classic *sectors*. Reading the UID works on every NFC phone, which is all v1 needs. Test the terminal phones with your real cards before buying a batch (see `docs/device-test-checklist.md`).
 
+## Check-in mode (points for time inside)
+
+A terminal can be a sign-in / sign-out point instead of an ATM. In the admin site:
+
+1. **Check-in** page: make **zones** (like "Workshop", "Gym"). Each zone has its own rules: points per block (say 8 per 12 minutes), how a partial block is rounded (down, up, nearest, or exact per minute), minimum stay, max points per visit, max points per 24 hours (per card, per zone), the longest stay that counts, and a re-tap lock-out. A live table shows what a stay of 5, 12, 30, 60… minutes earns.
+2. **Terminals** page: set the terminal's mode to **Check-in**, pick its **zone**, and its **point type**: *Toggle* (in if outside, out if inside), *Sign in only* or *Sign out only*. The phone follows within about 30 seconds.
+
+The phone then has no buttons: "Tap your card" (or "Tap to sign in" / "Tap to sign out"), the zone name, and after a tap the photo, name, time and points, then back to waiting after 5 seconds. A tap on the next card replaces the screen at once. Unpair and the beep switch are behind a **long press on the terminal name** at the bottom.
+
+Good to know: a visit is paid by the rules of the zone where it began, whichever point signs out. A visit longer than the zone's longest stay earns nothing (forgotten sign-outs can't farm points). A sign-in point does not move someone who is still inside; a sign-out point does nothing for someone who isn't inside. Admins see who is inside, with Sign out and Discard buttons, and can storno a check-out award in Transactions. Admin grants and deductions (Cards, then a card, then Grant or take away) are listed in Transactions with who did it and why.
+
 ## Behavior worth knowing
 
 - A charge carries a one-time key. If the connection drops and the operator taps again, the server returns the original result instead of crediting twice.

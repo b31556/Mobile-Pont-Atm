@@ -233,12 +233,12 @@ function terminalsPane() {
 
 function txnsPane() {
   const tx = state.data.tx || [];
-  return `<div class="ph"><div><h1>Transactions</h1><p>Newest first. Storno adds a reversing row and keeps the original.</p></div></div>
+  return `<div class="ph"><div><h1>Transactions</h1><p>Newest first. Includes points admins granted or took away by hand. Storno adds a reversing row and keeps the original.</p></div></div>
     <div class="tw"><table><thead><tr><th>Time</th><th>ID</th><th>Holder</th><th>Points</th><th>Terminal</th><th>Operator</th><th>Status</th><th></th></tr></thead><tbody>
-    ${tx.length ? tx.map(t => `<tr><td>${esc(when(t.createdAt))}</td><td class="mono">T-${t.id}</td>
+    ${tx.length ? tx.map(t => `<tr><td>${esc(when(t.createdAt))}</td><td class="mono">${t.type === 'adjust' ? 'Adjustment' : 'T-' + t.id}</td>
       <td><div class="hold">${avatar({ ...t.card, hasPhoto: false })}${esc(t.card.name)}</div></td>
-      <td class="num ${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}${t.kind === 'presence' ? `<div class="subnote">Check-out · ${esc(t.note || '')}${t.zone ? ' · ' + esc(t.zone) : ''}</div>` : ''}</td><td>${esc(t.terminal || '—')}</td><td>${esc(t.operator || '—')}</td>
-      <td>${t.type === 'storno' ? `<span class="pill amber">Storno of T-${t.ref}</span>` : t.status === 'stornoed' ? '<span class="pill mute">Stornoed</span>' : '<span class="pill ok">Completed</span>'}</td>
+      <td class="num ${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}${t.kind === 'presence' ? `<div class="subnote">Check-out · ${esc(t.note || '')}${t.zone ? ' · ' + esc(t.zone) : ''}</div>` : ''}${t.type === 'adjust' ? `<div class="subnote">${esc(t.note || 'No reason given')}</div>` : ''}</td><td>${esc(t.terminal || '—')}</td><td>${esc(t.operator || '—')}</td>
+      <td>${t.type === 'adjust' ? `<span class="pill amber">${t.amount > 0 ? 'Admin grant' : 'Admin deduction'}</span>` : t.type === 'storno' ? `<span class="pill amber">Storno of T-${t.ref}</span>` : t.status === 'stornoed' ? '<span class="pill mute">Stornoed</span>' : '<span class="pill ok">Completed</span>'}</td>
       <td>${t.type === 'give' && t.status === 'ok' ? `<button class="btn line sm" data-act="storno" data-id="${t.id}">Storno</button>` : ''}</td></tr>`).join('')
       : '<tr><td colspan="8" class="empty">No transactions yet.</td></tr>'}
     </tbody></table></div>`;
@@ -268,8 +268,9 @@ function drawerView() {
     <p style="font-size:12px;color:var(--ink-3);margin-top:-6px">On a terminal, tap the card and choose “Suggest for addition”. It then appears under Suggested cards, with its UID ready to copy.</p>
     ${isNew ? '<label class="field">Starting points<input id="d-pts" type="number" min="0" value="0"></label>'
       : `<div class="dsep"></div><div class="inline" style="align-items:center"><div style="flex:1"><b class="num" style="font-size:26px">${c.balance}</b> points</div>${statusPill(c.status)}</div>
-         <div class="inline"><input class="search" id="d-adj" type="number" placeholder="Adjust by, e.g. -5" style="min-width:0;flex:1" aria-label="Adjust balance by"><button class="btn line" data-act="adjust" type="button">Apply</button></div>
-         <div class="mini"><b style="color:var(--ink)">Recent</b>${hist.length ? hist.map(t => `<div><span>${esc(when(t.createdAt))} · T-${t.id}</span><span class="${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}</span></div>`).join('') : '<div><span>No transactions yet</span></div>'}</div>`}
+         <div class="inline"><input class="search" id="d-adj" type="number" placeholder="Grant or take away, e.g. -5" style="min-width:0;flex:1" aria-label="Grant or take away points"><button class="btn line" data-act="adjust" type="button">Apply</button></div>
+         <input class="search" id="d-reason" placeholder="Reason (optional, shown in Transactions)" maxlength="200" style="min-width:0;width:100%" aria-label="Reason">
+         <div class="mini"><b style="color:var(--ink)">Recent</b>${hist.length ? hist.map(t => `<div><span>${esc(when(t.createdAt))} · ${t.type === 'adjust' ? (t.amount > 0 ? 'Admin grant' : 'Admin deduction') : 'T-' + t.id}</span><span class="${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}</span></div>`).join('') : '<div><span>No transactions yet</span></div>'}</div>`}
     <p class="err" id="d-err" role="alert"></p>
     <div style="margin-top:auto" class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closedrawer" type="button">Cancel</button>
       <button class="btn green" style="flex:1;justify-content:center" data-act="savecard" type="button">${isNew ? 'Add card' : 'Save'}</button></div>
@@ -397,7 +398,7 @@ root.addEventListener('click', async e => {
     case 'adjust': await guard(async () => {
       const delta = parseInt($('#d-adj').value, 10);
       if (!delta) throw new Error('Enter a whole number, not 0.');
-      const c = await api('POST', `/cards/${state.drawer.card.id}/adjust`, { delta });
+      const c = await api('POST', `/cards/${state.drawer.card.id}/adjust`, { delta, reason: $('#d-reason').value });
       await refresh(); state.drawer = { mode: 'edit', card: c }; render(); toast('Balance is now ' + c.balance + '.');
     }); break;
     case 'savecard': {

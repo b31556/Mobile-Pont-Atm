@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { stamp } from '../clock.js';
 import { normalizeUid } from '../uid.js';
 import { cardJson, findCardByUid, type CardRow } from './cards.js';
 
@@ -28,7 +29,7 @@ export function registerCharges(app: FastifyInstance) {
     const card = findCardByUid(db, uid);
     if (!card) throw new Refusal(404, 'unknown_card', 'Card not registered');
     if (card.status === 'blocked') throw new Refusal(403, 'card_blocked', 'Card is blocked', { card: { name: card.name, photoUrl: cardJson(card).photoUrl } });
-    const now = new Date().toISOString();
+    const now = stamp().toISOString();
     db.prepare('update cards set balance=balance+?, last_used=? where id=?').run(amount, now, card.id);
     const after = card.balance + amount;
     const id = db.prepare(`insert into transactions(card_id,amount,type,status,terminal_id,operator_id,idempotency_key,created_at,balance_after)
@@ -48,7 +49,7 @@ export function registerCharges(app: FastifyInstance) {
     db.prepare('update cards set balance=? where id=?').run(after, card.id);
     db.prepare("update transactions set status='stornoed' where id=?").run(id);
     const rid = db.prepare(`insert into transactions(card_id,amount,type,status,ref,terminal_id,operator_id,created_at,balance_after)
-      values(?,?,'storno','ok',?,?,?,?,?)`).run(card.id, -orig.amount, id, user.terminalId ?? orig.terminal_id, user.viaTerminal ? null : user.id, new Date().toISOString(), after).lastInsertRowid;
+      values(?,?,'storno','ok',?,?,?,?,?)`).run(card.id, -orig.amount, id, user.terminalId ?? orig.terminal_id, user.viaTerminal ? null : user.id, stamp().toISOString(), after).lastInsertRowid;
     return { tx: db.prepare('select * from transactions where id=?').get(rid) as TxRow, card: { ...card, balance: after } as CardRow };
   });
 
@@ -78,11 +79,24 @@ export function registerCharges(app: FastifyInstance) {
     const rows = db.prepare(`select t.*, c.name card_name, s.name operator_name, z.name zone_name from transactions t
       join cards c on c.id=t.card_id left join staff s on s.id=t.operator_id left join zones z on z.id=t.zone_id
       ${own ? 'where t.terminal_id=?' : ''} order by t.id desc limit ?`).all(...(own ? [req.user.terminalId] : []), limit) as (TxRow & { card_name: string; operator_name: string | null; zone_name: string | null })[];
-    return rows.map(t => ({
-      id: t.id, type: t.type, amount: t.amount, status: t.status, ref: t.ref, createdAt: t.created_at, kind: (t as { kind?: string }).kind ?? 'atm', note: (t as { note?: string | null }).note ?? null, zone: t.zone_name,
+    const list = rows.map(t => ({
+      id: t.id as number | string, type: t.type as string, amount: t.amount, status: t.status as string, ref: t.ref, createdAt: t.created_at,
+      kind: (t as { kind?: string }).kind ?? 'atm', note: (t as { note?: string | null }).note ?? null, zone: t.zone_name as string | null,
       terminal: terminalName(t.terminal_id), operator: t.operator_name ?? terminalName(t.terminal_id),
       card: { id: t.card_id, name: t.card_name, photoUrl: `/cards/${t.card_id}/photo` },
     }));
+    if (own) return list;
+    // Admins also see the points other admins granted or took away by hand.
+    const adjustments = db.prepare(`select a.*, c.name card_name, s.name staff_name from balance_adjustments a
+      join cards c on c.id=a.card_id left join staff s on s.id=a.staff_id order by a.created_at desc limit ?`).all(limit) as
+      { id: string; card_id: string; delta: number; created_at: string; reason: string | null; card_name: string; staff_name: string | null }[];
+    for (const a of adjustments) {
+      list.push({
+        id: a.id, type: 'adjust', amount: a.delta, status: 'ok', ref: null, createdAt: a.created_at, kind: 'adjust', note: a.reason, zone: null,
+        terminal: '', operator: a.staff_name ?? '', card: { id: a.card_id, name: a.card_name, photoUrl: `/cards/${a.card_id}/photo` },
+      });
+    }
+    return list.sort((x, y) => (x.createdAt < y.createdAt ? 1 : x.createdAt > y.createdAt ? -1 : 0)).slice(0, limit);
   });
 
   app.post('/transactions/:id/storno', { preHandler: app.requireStaff }, async req => {
