@@ -33,3 +33,13 @@ sealed interface ChargeOutcome {
 
 /** A refusal or failure reported by the server, carrying its message for display. */
 class ApiException(message: String, val code: String? = null, val status: Int = 0) : Exception(message)
+
+interface HistoryApi {
+    suspend fun history(): Result<List<Tx>>
+    suspend fun storno(id: Long): Result<StornoResult>
+}
+
+interface PresetsApi {
+    suspend fun presets(): Result<PresetConfig>
+    suspend fun savePresets(values: List<Int>, instantPreset: Boolean): Result<PresetConfig>
+}

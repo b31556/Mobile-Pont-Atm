@@ -21,7 +21,11 @@ android {
         versionName = "0.1.0"
     }
     buildTypes {
-        release { isMinifyEnabled = false }
+        debug { buildConfigField("String", "DEFAULT_BASE_URL", "\"http://localhost:3000\"") }
+        release {
+            isMinifyEnabled = false
+            buildConfigField("String", "DEFAULT_BASE_URL", "\"https://pont.example\"")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

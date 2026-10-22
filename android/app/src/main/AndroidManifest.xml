@@ -6,6 +6,7 @@
     <uses-feature android:name="android.hardware.nfc" android:required="true" />
 
     <application
+        android:name=".PontApp"
         android:allowBackup="false"
         android:label="Pont"
         android:theme="@style/Theme.Pont">
