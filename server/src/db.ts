@@ -12,7 +12,7 @@ create table if not exists staff(
 create table if not exists terminals(
   id text primary key, name text not null, place text not null default '',
   active integer not null default 1, last_seen text, app_version text, device text,
-  instant_preset integer not null default 1, last_operator text
+  instant_preset integer not null default 1, last_operator text, presets_saved integer not null default 0
 );
 create table if not exists pairing_codes(
   code text primary key, terminal_id text not null references terminals(id),
