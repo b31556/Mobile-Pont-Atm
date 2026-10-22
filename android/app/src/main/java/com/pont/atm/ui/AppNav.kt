@@ -81,12 +81,12 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     fun noteResult(r: Result<*>) {
         r.onSuccess { online = true }.onFailure { online = (it as? ApiException)?.code != "no_connection" }
         // The server stopped accepting this phone (revoked in admin): back to pairing.
-        if (session.terminalToken == null && screen != Screen.Pair) { flow.reset(); authError = null; mode = "atm"; screen = Screen.Pair }
+        if (pairingLost(session.terminalToken != null, screen == Screen.Pair)) { flow.reset(); authError = null; mode = "atm"; screen = Screen.Pair }
     }
 
     /** Asks the server which mode this phone is in. A switch waits until nothing is in progress. */
     suspend fun refreshConfig() {
-        if (session.terminalToken == null) return
+        if (session.terminalToken == null) { noteResult(Result.success(Unit)); return }
         val r = api.config()
         noteResult(r)
         r.onSuccess { c ->
@@ -120,7 +120,9 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     val waiting = flowState is FlowState.WaitingForCard
     LifecycleResumeEffect(Unit) {
         nfc = reader.status()
-        reader.enable { uid -> scope.launch { if (currentMode == "presence") graph.presence.onTag(uid) else flow.onTag(uid) } }
+        reader.enable { uid ->
+            if (acceptsCards(session.terminalToken != null)) scope.launch { if (currentMode == "presence") graph.presence.onTag(uid) else flow.onTag(uid) }
+        }
         scope.launch { refreshConfig() }
         onPauseOrDispose { reader.disable() }
     }
@@ -133,6 +135,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
         val st = presenceState
         if (st is PresenceState.Showing) {
             online = st.outcome !is PresenceOutcome.NoConnection
+            noteResult(Result.success(Unit))
             when (presenceSound(st.outcome)) {
                 PresenceSound.Success -> graph.beeper.ok()
                 PresenceSound.CheckIn -> graph.beeper.checkIn()

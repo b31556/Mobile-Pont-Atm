@@ -300,6 +300,27 @@ describe('admin: settings, preview, who is inside', () => {
     expect(res.recent[0]).toMatchObject({ status: 'closed', minutes: 25, points: 16 });
   });
 
+  it('signing out a forgotten (overdue) visit from admin earns nothing and marks it forgotten', async () => {
+    const { app, adminToken, door, tap, backdate, balance, count } = await setup();
+    await tap(door); backdate(3 * 24 * 60);
+    const inside = (await app.inject({ method: 'GET', url: '/presence/sessions', headers: auth(adminToken) })).json().inside[0];
+    expect(inside.overdue).toBe(true);
+    const res = await app.inject({ method: 'POST', url: `/presence/sessions/${inside.id}/close`, headers: auth(adminToken), payload: { award: true } });
+    expect(res.json()).toMatchObject({ ok: true, points: 0 });
+    expect(balance()).toBe(46);
+    expect(count("select count(*) c from transactions where kind='presence'")).toBe(0);
+    expect(count("select count(*) c from presence_sessions where status='expired'")).toBe(1);
+    expect(count("select count(*) c from presence_sessions where status='open'")).toBe(0);
+  });
+
+  it('a visit just inside the longest stay is still paid when an admin signs it out', async () => {
+    const { app, adminToken, door, tap, backdate, balance } = await setup();
+    await tap(door); backdate(11 * 60);
+    const id = (await app.inject({ method: 'GET', url: '/presence/sessions', headers: auth(adminToken) })).json().inside[0].id;
+    expect((await app.inject({ method: 'POST', url: `/presence/sessions/${id}/close`, headers: auth(adminToken), payload: { award: true } })).json().points).toBe(440);
+    expect(balance()).toBe(486);
+  });
+
   it('an admin can sign someone out with points, or discard the visit', async () => {
     const { app, adminToken, door, tap, backdate, balance, count } = await setup();
     await tap(door); backdate(24);

@@ -230,10 +230,16 @@ export function registerPresence(app: FastifyInstance) {
     const result = db.transaction(() => {
       const s = db.prepare("select * from presence_sessions where id=? and status='open'").get(id) as SessionRow | undefined;
       if (!s) return null;
-      if (award) return checkOut(db, s, cardById(s.card_id), zoneOf(s), stamp(), null, null).points;
       const now = stamp();
-      db.prepare("update presence_sessions set status='discarded', out_at=?, minutes=?, points=0 where id=?")
-        .run(now.toISOString(), Math.max(0, Math.floor((now.getTime() - Date.parse(s.in_at)) / 60000)), id);
+      const zone = zoneOf(s);
+      const minutes = Math.max(0, Math.floor((now.getTime() - Date.parse(s.in_at)) / 60000));
+      // The same rule as at a terminal: a visit longer than the zone's longest stay earns nothing, even when an admin closes it.
+      if (award && minutes > zone.settings.maxStayHours * 60) {
+        db.prepare("update presence_sessions set status='expired', out_at=?, minutes=?, points=0 where id=?").run(now.toISOString(), minutes, id);
+        return 0;
+      }
+      if (award) return checkOut(db, s, cardById(s.card_id), zone, now, null, null).points;
+      db.prepare("update presence_sessions set status='discarded', out_at=?, minutes=?, points=0 where id=?").run(now.toISOString(), minutes, id);
       return 0;
     })();
     if (result === null) return reply.code(404).send({ error: 'No open visit with that id' });
