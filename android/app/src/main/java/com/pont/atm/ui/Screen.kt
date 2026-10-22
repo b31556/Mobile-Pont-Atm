@@ -2,7 +2,6 @@ package com.pont.atm.ui
 
 sealed interface Screen {
     data object Pair : Screen
-    data object Login : Screen
     data object Charge : Screen
     data object Tap : Screen
     data object Processing : Screen

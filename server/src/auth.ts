@@ -6,7 +6,8 @@ import { TOO_MANY } from './limiter.js';
 
 export type Role = 'admin' | 'operator';
 export const STAFF_TOKEN_SECONDS = 12 * 60 * 60;
-export interface StaffUser { id: string; name: string; role: Role; terminalId?: string }
+/** `viaTerminal`: the request was made with a paired phone's terminal token alone, with no person signed in (id is then the terminal's id). */
+export interface StaffUser { id: string; name: string; role: Role; terminalId?: string; viaTerminal?: boolean }
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -46,6 +47,16 @@ export function registerAuth(app: FastifyInstance) {
   async function staffCheck(req: FastifyRequest, reply: FastifyReply, want?: Role) {
     try { await req.jwtVerify(); } catch { return unauthorized(reply); }
     const p = req.user as unknown as { kind?: string; id: string; role: Role; terminalId?: string; v?: number };
+    if (p.kind === 'terminal') {
+      // A paired phone is trusted as itself: it can do what an operator can, on its own terminal, and nothing more.
+      const t = app.db.prepare('select id,name,active from terminals where id=?').get(p.terminalId ?? '') as { id: string; name: string; active: number } | undefined;
+      if (!t) return unauthorized(reply);
+      if (!t.active) return unauthorized(reply, 'This phone was revoked');
+      if (want === 'admin') return reply.code(403).send({ error: 'Not allowed' });
+      app.db.prepare('update terminals set last_seen=? where id=?').run(new Date().toISOString(), t.id);
+      req.user = { id: t.id, name: t.name, role: 'operator', terminalId: t.id, viaTerminal: true };
+      return;
+    }
     if (p.kind !== 'staff') return unauthorized(reply);
     const row = app.db.prepare('select id,name,role,active,token_version from staff where id=?').get(p.id) as { id: string; name: string; role: Role; active: number; token_version: number } | undefined;
     if (!row || !row.active) return unauthorized(reply, 'This account is switched off');

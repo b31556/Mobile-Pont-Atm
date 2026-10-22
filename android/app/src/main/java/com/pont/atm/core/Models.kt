@@ -2,8 +2,6 @@ package com.pont.atm.core
 
 import kotlinx.serialization.Serializable
 
-@Serializable data class User(val id: String, val name: String, val role: String)
-
 @Serializable data class TxInfo(val id: Long, val amount: Int, val createdAt: String, val terminal: String)
 
 @Serializable data class CardInfo(

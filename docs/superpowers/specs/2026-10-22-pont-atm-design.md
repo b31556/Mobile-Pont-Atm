@@ -6,7 +6,7 @@ Approved visual reference: `sketch/index.html` (clickable prototype, approved by
 An Android "point ATM". An operator types an amount (or taps a preset), taps a MIFARE Classic 1K card on the phone, and the server credits that many points to the card. The phone shows a POS-style progress bar, beeps, and shows the cardholder's photo so the operator can check the face. Operators can storno (refund) recent transactions without the card. Admins manage cards, terminals and staff on a website.
 
 ## Goals
-- Terminal app (Android only): login, charge screen with numpad and green button, presets (tap once, then card), tap/read/progress/beep flow, result screen with holder photo, history with storno, presets management.
+- Terminal app (Android only): pairing screen, charge screen with numpad and green button, presets (tap once, then card), tap/read/progress/beep flow, result screen with holder photo, history with storno, presets management.
 - Server: authoritative balances, transactions, storno, presets per terminal, photos, auth.
 - Admin website: cards (add, edit, photo, UID, block, adjust), terminals (pair, revoke), transactions (with storno), staff.
 - Real NFC reading of MIFARE Classic 1K tags.
@@ -26,7 +26,7 @@ These are my calls unless noted.
 - **App:** native Kotlin, Jetpack Compose with a custom theme matching the sketch (colors and type from its CSS tokens), OkHttp for HTTP, kotlinx.serialization for JSON, Coil for photos. Min SDK 26.
 - **Server:** Node.js 20+, TypeScript, Fastify, SQLite (better-sqlite3), JWT auth, argon2/bcrypt password hashing. Admin website is plain HTML/JS served by the same server (reusing the sketch's styles), calling the same JSON API.
 - **Photos:** uploaded in admin, stored on disk, served at `/photos/:cardId` (authenticated), shown in the app via an image loader (Coil).
-- **Terminal pairing:** admin creates a terminal and gets a one-time 6-digit code (10 min expiry). The app exchanges the code for a long-lived terminal token. Operators then sign in with email and password; the operator token carries the terminal id.
+- **Terminal pairing, no sign-in (changed 2026-10-22 at the user's request):** admin creates a terminal and gets a one-time 6-digit code (10 min expiry). The app exchanges the code for a long-lived terminal token, and that token alone authorizes charges, history, storno and presets for that terminal. There is no per-person login in the app. Charges are recorded under the terminal's name (no staff id). A lost or retired phone is cut off by revoking its terminal in admin. Admins sign in on the website with email and password. Staff operator accounts still work on the server for sessions made before this change.
 - **Presets** belong to the terminal and are stored on the server.
 - **Storno** creates a reversing transaction and marks the original `stornoed`. Refused if it would make the balance negative or if already stornoed.
 - **Beep:** `ToneGenerator`, plus a different low tone on errors.
