@@ -41,3 +41,34 @@ interface PresetsApi {
     suspend fun presets(): Result<PresetConfig>
     suspend fun savePresets(values: List<Int>, instantPreset: Boolean): Result<PresetConfig>
 }
+
+// ---- check-in mode ----
+
+@Serializable data class TerminalConfig(val mode: String, val name: String)
+
+@Serializable data class PresenceCard(val id: String, val name: String, val photoUrl: String, val balance: Int)
+
+/** Points earned from presence in the last 24 h, and the limit if there is one. */
+@Serializable data class PresenceToday(val earned: Int, val max: Int? = null)
+
+/**
+ * What a check-in tap did. [action] is `in`, `out`, `cooldown` (tapped again too soon, nothing changed)
+ * or `expired_in` (the last visit was never signed out, earned nothing, and a new one started).
+ */
+@Serializable data class PresenceResult(
+    val action: String, val card: PresenceCard, val inAt: String, val outAt: String? = null, val minutes: Int? = null,
+    val points: Int = 0, val raw: Int = 0, val cappedBy: String? = null, val today: PresenceToday, val expiredMinutes: Int? = null,
+)
+
+sealed interface PresenceOutcome {
+    data class Done(val result: PresenceResult) : PresenceOutcome
+    data class Blocked(val name: String, val photoUrl: String) : PresenceOutcome
+    data object UnknownCard : PresenceOutcome
+    data object NoConnection : PresenceOutcome
+    data object WrongMode : PresenceOutcome
+    data class Failed(val message: String) : PresenceOutcome
+}
+
+fun interface PresenceApi {
+    suspend fun presenceTap(uid: String, key: String): PresenceOutcome
+}

@@ -150,4 +150,68 @@ class ApiTest {
         server.shutdown()
         assertEquals("No connection to the server.", api.suggestCard("04:EE:00:77").exceptionOrNull()?.message)
     }
+
+    private val inBody = """{"action":"in","card":{"id":"c1","name":"Anna Kovács","photoUrl":"/cards/c1/photo","balance":46},
+        "inAt":"2026-10-22T14:00:00.000Z","points":0,"raw":0,"cappedBy":null,"today":{"earned":0,"max":null}}"""
+    private val outBody = """{"action":"out","card":{"id":"c1","name":"Anna Kovács","photoUrl":"/cards/c1/photo","balance":70},
+        "inAt":"2026-10-22T14:00:00.000Z","outAt":"2026-10-22T14:40:00.000Z","minutes":40,"points":24,"raw":32,"cappedBy":"visit","today":{"earned":24,"max":100}}"""
+
+    @Test fun configReadsTheModeAndName() = runBlocking {
+        server.enqueue(json(200, """{"mode":"presence","name":"Door"}"""))
+        assertEquals(TerminalConfig("presence", "Door"), api.config().getOrThrow())
+        val req = server.takeRequest()
+        assertEquals("/terminal/config", req.path); assertEquals("Bearer term-tok", req.getHeader("Authorization"))
+    }
+
+    @Test fun aCheckInIsMapped() = runBlocking {
+        server.enqueue(json(200, inBody))
+        val r = (api.presenceTap("04:A2:3B:1C", "k1") as PresenceOutcome.Done).result
+        assertEquals("in", r.action); assertEquals("Anna Kovács", r.card.name); assertNull(r.today.max); assertNull(r.outAt)
+        val req = server.takeRequest()
+        assertEquals("/presence/tap", req.path); assertEquals("Bearer term-tok", req.getHeader("Authorization"))
+        val body = req.body.readUtf8()
+        assertTrue("\"cardUid\":\"04:A2:3B:1C\"" in body && "\"idempotencyKey\":\"k1\"" in body)
+    }
+
+    @Test fun aCheckOutCarriesTheStats() = runBlocking {
+        server.enqueue(json(200, outBody))
+        val r = (api.presenceTap("04:A2:3B:1C", "k2") as PresenceOutcome.Done).result
+        assertEquals(40, r.minutes); assertEquals(24, r.points); assertEquals("visit", r.cappedBy)
+        assertEquals(24, r.today.earned); assertEquals(100, r.today.max); assertEquals(70, r.card.balance)
+    }
+
+    @Test fun lockOutAndForgottenSignOutAreMapped() = runBlocking {
+        server.enqueue(json(200, inBody.replace("\"in\"", "\"cooldown\"")))
+        assertEquals("cooldown", (api.presenceTap("u", "k") as PresenceOutcome.Done).result.action)
+        server.enqueue(json(200, inBody.replace("\"in\"", "\"expired_in\"").replace("\"points\"", "\"expiredMinutes\":780,\"points\"")))
+        val r = (api.presenceTap("u", "k") as PresenceOutcome.Done).result
+        assertEquals("expired_in", r.action); assertEquals(780, r.expiredMinutes)
+    }
+
+    @Test fun refusalsAreMapped() = runBlocking {
+        server.enqueue(json(404, """{"error":"Card not registered","code":"unknown_card"}"""))
+        assertEquals(PresenceOutcome.UnknownCard, api.presenceTap("u", "k"))
+        server.enqueue(json(403, """{"error":"Card is blocked","code":"card_blocked","card":{"name":"Dóra","photoUrl":"/cards/c4/photo"}}"""))
+        assertEquals(PresenceOutcome.Blocked("Dóra", "/cards/c4/photo"), api.presenceTap("u", "k"))
+        server.enqueue(json(409, """{"error":"This terminal is not in check-in mode.","code":"wrong_mode"}"""))
+        assertEquals(PresenceOutcome.WrongMode, api.presenceTap("u", "k"))
+        server.enqueue(json(500, """{"error":"Something broke"}"""))
+        assertEquals(PresenceOutcome.Failed("Something broke"), api.presenceTap("u", "k"))
+    }
+
+    @Test fun noConnectionIsMapped() = runBlocking {
+        server.shutdown()
+        assertEquals(PresenceOutcome.NoConnection, api.presenceTap("u", "k"))
+    }
+
+    @Test fun aRevokedPhoneIsUnpairedByACheckInTap() = runBlocking {
+        server.enqueue(json(401, """{"error":"This phone was revoked"}"""))
+        assertTrue(api.presenceTap("u", "k") is PresenceOutcome.Failed)
+        assertNull(session.terminalToken)
+    }
+
+    @Test fun theModeIsRememberedAndDefaultsToAtm() {
+        assertEquals("atm", InMemorySessionStore().mode)
+        session.mode = "presence"; assertEquals("presence", session.mode)
+    }
 }
