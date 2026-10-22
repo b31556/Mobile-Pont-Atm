@@ -33,5 +33,19 @@ These are my calls unless noted.
 - **Repeat charge:** the result screen has "One more like this", which starts a new charge for the same amount at once.
 - **Card suggestions:** on "Card not registered" the phone can send the UID to the server (`POST /card-suggestions`). Admins see them under Suggested cards, copy the UID or add it as a card in one step; adding the card clears the suggestion.
 
+## Check-in mode (added 2026-10-22, approved by the user)
+A terminal can run as a sign-in / sign-out point instead of an ATM. Points are earned for time spent inside.
+
+- **Mode** is a per-terminal admin setting (`atm` | `presence`). The phone reads it from `GET /terminal/config` on resume and every 30 s while idle, so no re-pairing.
+- **Phone in check-in mode has no buttons.** It shows "Tap your card". A tap on a card that is not inside checks it in; a tap on a card that is inside checks it out and awards points. The result shows photo, name and stats for 5 s, then returns to idle; the next tap replaces it immediately. Unregistered cards are recorded as suggestions automatically. Unpair and the beep switch are behind a hidden long-press on the terminal name.
+- **Rules (one global set, edited in admin):** points per block (default 8) and block length in minutes (12); rounding of the partial block: `down` (default), `up`, `nearest`, `prorata`; minimum minutes to earn anything (0); max points per visit (none); max points per rolling 24 h per card (none); longest stay in hours (12); re-tap lock-out in seconds (30).
+- **Calculation:** minutes = whole minutes inside. If below the minimum: 0. units = minutes / block; down/up/nearest round units to whole blocks, `prorata` rounds units x points to whole points. Then capped by max per visit, then by what is left of the 24 h allowance (points from presence awards in the last 24 h that were not stornoed).
+- **Forgotten sign-out:** a visit older than the longest stay earns nothing; the tap closes it as `expired` and starts a new check-in.
+- **Re-tap lock-out:** a tap within the lock-out of the last check-in changes nothing ("Already checked in").
+- **A card is inside or outside system-wide**, not per terminal.
+- **Storno:** check-out awards are normal `give` transactions (kind `presence`) and can be stornoed from the admin site.
+- **Admin:** a Check-in page with the rules, a live preview table (computed by the server), who is inside now (with sign out / discard), and recent visits.
+- **Idempotency:** each tap carries a key; the phone re-uses it when the same card is re-tapped after a lost connection.
+
 ## Left to the builder
 Package names, exact file layout, DB column types, minor visual details not shown in the sketch, error copy for edge cases.
