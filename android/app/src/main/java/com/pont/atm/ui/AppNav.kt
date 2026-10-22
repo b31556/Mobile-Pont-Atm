@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,9 +38,14 @@ import com.pont.atm.BuildConfig
 import com.pont.atm.core.ApiException
 import com.pont.atm.core.ChargeOutcome
 import com.pont.atm.core.FlowState
+import com.pont.atm.core.PresenceOutcome
+import com.pont.atm.core.PresenceState
 import com.pont.atm.nfc.NfcReader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** How long the result of a check-in tap stays on screen before the phone goes back to "Tap your card". */
+private const val PRESENCE_SHOW_MS = 5_000L
 
 @Composable
 fun AppNav(graph: AppGraph, reader: NfcReader) {
@@ -65,11 +71,27 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     var resultReady by remember { mutableStateOf(false) }
     var sendStart by remember { mutableLongStateOf(0L) }
     var nfc by remember { mutableStateOf(reader.status()) }
+    // `atm` or `presence`: set by the server per terminal, remembered so a restart opens in the right mode.
+    var mode by remember { mutableStateOf(session.mode) }
+    val currentMode by rememberUpdatedState(mode)
+    val presenceState by graph.presence.state.collectAsState()
 
     fun noteResult(r: Result<*>) {
         r.onSuccess { online = true }.onFailure { online = (it as? ApiException)?.code != "no_connection" }
         // The server stopped accepting this phone (revoked in admin): back to pairing.
-        if (session.terminalToken == null && screen != Screen.Pair) { flow.reset(); authError = null; screen = Screen.Pair }
+        if (session.terminalToken == null && screen != Screen.Pair) { flow.reset(); authError = null; mode = "atm"; screen = Screen.Pair }
+    }
+
+    /** Asks the server which mode this phone is in. A switch waits until nothing is in progress. */
+    suspend fun refreshConfig() {
+        if (session.terminalToken == null) return
+        val r = api.config()
+        noteResult(r)
+        r.onSuccess { c ->
+            session.terminalName = c.name
+            val idle = flow.state.value is FlowState.Idle && graph.presence.state.value !is PresenceState.Sending
+            if (c.mode != mode && idle) { mode = c.mode; session.mode = c.mode; graph.presence.clear() }
+        }
     }
 
     // A short minimum "processing" time so the progress bar is visible, then the POS beep with the result.
@@ -94,8 +116,26 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     val waiting = flowState is FlowState.WaitingForCard
     LifecycleResumeEffect(Unit) {
         nfc = reader.status()
-        reader.enable { uid -> scope.launch { flow.onTag(uid) } }
+        reader.enable { uid -> scope.launch { if (currentMode == "presence") graph.presence.onTag(uid) else flow.onTag(uid) } }
+        scope.launch { refreshConfig() }
         onPauseOrDispose { reader.disable() }
+    }
+
+    // Pick up a mode change made in the admin site within about half a minute.
+    LaunchedEffect(Unit) { while (true) { delay(30_000); refreshConfig() } }
+
+    // Check-in mode: sound for what the tap did, then back to "Tap your card" after a few seconds.
+    LaunchedEffect(presenceState) {
+        val st = presenceState
+        if (st is PresenceState.Showing) {
+            online = st.outcome !is PresenceOutcome.NoConnection
+            when (val o = st.outcome) {
+                is PresenceOutcome.Done -> if (o.result.action == "out") graph.beeper.ok() else graph.beeper.checkIn()
+                else -> graph.beeper.error()
+            }
+            delay(PRESENCE_SHOW_MS)
+            graph.presence.clear()
+        }
     }
 
     LaunchedEffect(screen) {
@@ -110,14 +150,19 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     LaunchedEffect(toast) { if (toast != null) { delay(2600); toast = null } }
 
     val showProcessing = flowState is FlowState.Sending || (flowState is FlowState.Done && !resultReady)
-    val dark = waiting || showProcessing
-    val showTabs = flowState is FlowState.Idle && screen in tabScreens
+    val presenceMode = mode == "presence" && screen != Screen.Pair
+    val dark = if (presenceMode) presenceState !is PresenceState.Showing else (waiting || showProcessing)
+    val showTabs = !presenceMode && flowState is FlowState.Idle && screen in tabScreens
 
     Surface(color = if (dark) PontColors.Ink else PontColors.Bg, contentColor = if (dark) Color.White else PontColors.Ink) {
         Box(Modifier.fillMaxSize().statusBarsPadding()) {
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth().then(if (showTabs) Modifier else Modifier.navigationBarsPadding())) {
                     when {
+                        presenceMode -> PresenceScreen(
+                            presenceState, api, session.terminalName.orEmpty(), onMenu = { menu = true },
+                            onDebugTag = { uid -> scope.launch { graph.presence.onTag(uid) } },
+                        )
                         waiting -> TapScreen((flowState as FlowState.WaitingForCard).amount, nfc, onDebugTag = { uid -> scope.launch { flow.onTag(uid) } }) { flow.cancel() }
                         showProcessing -> ProcessingScreen(
                             (flowState as? FlowState.Sending)?.uid ?: (flowState as FlowState.Done).uid,
@@ -138,7 +183,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
                                 scope.launch {
                                     busy = true; authError = null
                                     api.pair(code, Build.MODEL ?: "Android", BuildConfig.VERSION_NAME)
-                                        .onSuccess { screen = Screen.Charge }.onFailure { authError = it.message }
+                                        .onSuccess { screen = Screen.Charge; refreshConfig() }.onFailure { authError = it.message }
                                     busy = false
                                 }
                             }

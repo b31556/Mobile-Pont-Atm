@@ -11,6 +11,7 @@ import android.os.Looper
 class Beeper(context: Context) {
     private val prefs = context.getSharedPreferences("pont-ui", Context.MODE_PRIVATE)
     private val handler = Handler(Looper.getMainLooper())
+    private val checkIn by lazy { ToneSynth.render(Beeps.checkIn) }
     private val success by lazy { ToneSynth.render(Beeps.success) }
     private val refusal by lazy { ToneSynth.render(Beeps.refusal) }
     private var current: AudioTrack? = null
@@ -19,6 +20,7 @@ class Beeper(context: Context) {
         get() = prefs.getBoolean("sound", true)
         set(v) { prefs.edit().putBoolean("sound", v).apply() }
 
+    fun checkIn() = play(checkIn)
     fun ok() = play(success)
     fun error() = play(refusal)
 
