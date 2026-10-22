@@ -1,6 +1,9 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import type { Db } from './db.js';
 import { registerAuth } from './auth.js';
 import { registerStaff } from './routes/staff.js';
@@ -16,6 +19,8 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate('db', opts.db);
   app.register(jwt, { secret: opts.jwtSecret });
   app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 } });
+  app.register(fastifyStatic, { root: join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'admin'), prefix: '/admin/' });
+  app.get('/', async (_req, reply) => reply.redirect('/admin/'));
   registerAuth(app);
   registerStaff(app);
   registerTerminals(app);
