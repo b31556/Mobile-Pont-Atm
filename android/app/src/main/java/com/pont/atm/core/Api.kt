@@ -23,7 +23,7 @@ class PontApi(
     private val session: SessionStore,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).writeTimeout(10, TimeUnit.SECONDS).build(),
-) {
+) : HistoryApi, PresetsApi {
     private val json = Json { ignoreUnknownKeys = true }
     private class Raw(val status: Int, val body: String)
 
@@ -92,15 +92,15 @@ class PontApi(
         }
     }
 
-    suspend fun history(): Result<List<Tx>> =
+    override suspend fun history(): Result<List<Tx>> =
         call("GET", "/transactions?limit=100") { json.decodeFromString<List<Tx>>(it) }
 
-    suspend fun storno(id: Long): Result<StornoResult> =
+    override suspend fun storno(id: Long): Result<StornoResult> =
         call("POST", "/transactions/$id/storno") { json.decodeFromString<StornoResult>(it) }
 
-    suspend fun presets(): Result<PresetConfig> = call("GET", "/presets") { json.decodeFromString<PresetConfig>(it) }
+    override suspend fun presets(): Result<PresetConfig> = call("GET", "/presets") { json.decodeFromString<PresetConfig>(it) }
 
-    suspend fun savePresets(values: List<Int>, instantPreset: Boolean): Result<PresetConfig> =
+    override suspend fun savePresets(values: List<Int>, instantPreset: Boolean): Result<PresetConfig> =
         call("PUT", "/presets", buildJsonObject {
             putJsonArray("values") { values.forEach { add(JsonPrimitive(it)) } }
             put("instantPreset", instantPreset)
