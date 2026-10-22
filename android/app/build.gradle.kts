@@ -9,6 +9,11 @@ kotlin {
     compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 }
 
+// Every commit raises the version code, so a new APK always installs over the old one as an update.
+val commitCount: Int = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
+}.getOrDefault(1)
+
 android {
     namespace = "com.pont.atm"
     compileSdk = 36
@@ -17,8 +22,8 @@ android {
         applicationId = "com.pont.atm"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = commitCount
+        versionName = "0.1.$commitCount"
     }
     buildTypes {
         debug { buildConfigField("String", "DEFAULT_BASE_URL", "\"http://your-machine.your-tailnet.ts.net:3000\"") }
