@@ -6,7 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "dev": "tsx src/index.ts",
-    "build": "tsc"
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js"
   },
   "dependencies": {
     "@fastify/jwt": "^10.2.5",

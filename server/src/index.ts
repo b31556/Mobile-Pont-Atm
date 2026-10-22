@@ -15,4 +15,4 @@ if (hasStaff.c === 0 && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
   seedStaff(db, { name: 'Admin', email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD, role: 'admin' });
   console.log('seeded admin', process.env.ADMIN_EMAIL);
 }
-app.listen({ port: Number(process.env.PORT ?? 3000), host: '0.0.0.0' }).then(a => console.log('listening', a));
+app.listen({ port: Number(process.env.PORT ?? 3000), host: process.env.HOST ?? '0.0.0.0' }).then(a => console.log('listening', a));
