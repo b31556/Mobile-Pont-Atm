@@ -110,4 +110,24 @@ class ChargeFlowTest {
         f.start(8); f.onTag("04:A2:3B:1C"); f.reset(); f.start(8); f.onTag("04:A2:3B:1C")
         assertEquals(listOf("key-1", "key-2"), api.calls.map { it.third })
     }
+
+    @Test fun aCancelledCallerStillLetsTheChargeFinish() = runTest {
+        // The Activity (and its coroutine scope) can be recreated while the request is in flight.
+        val gate = CompletableDeferred<Unit>(); val f = flow(Fake(ok, gate)); f.start(8)
+        val job = launch { f.onTag("04:A2:3B:1C") }
+        testScheduler.runCurrent()
+        job.cancel()
+        gate.complete(Unit); testScheduler.advanceUntilIdle()
+        assertEquals(FlowState.Done(8, ok, "04:A2:3B:1C"), f.state.value)
+    }
+
+    @Test fun anUnexpectedExceptionBecomesAFailureNotAStuckSendingState() = runTest {
+        val boom = object : ChargeApi { override suspend fun charge(uid: String, amount: Int, key: String): ChargeOutcome = throw IllegalStateException("boom") }
+        val f = flow(boom); f.start(8)
+        f.onTag("04:A2:3B:1C")
+        val done = f.state.value as FlowState.Done
+        assertTrue(done.outcome is ChargeOutcome.Failed)
+        f.retry()
+        assertEquals(FlowState.WaitingForCard(8), f.state.value)
+    }
 }

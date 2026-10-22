@@ -7,7 +7,8 @@ create table if not exists staff(
   id text primary key, name text not null, email text not null unique,
   password_hash text not null,
   role text not null check(role in ('admin','operator')),
-  active integer not null default 1
+  active integer not null default 1,
+  token_version integer not null default 0
 );
 create table if not exists terminals(
   id text primary key, name text not null, place text not null default '',

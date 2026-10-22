@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { checkTerminalToken } from '../auth.js';
+import { TOO_MANY } from '../limiter.js';
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
@@ -56,11 +57,13 @@ export function registerTerminals(app: FastifyInstance) {
 
   app.post('/pair', async (req, reply) => {
     const b = (req.body ?? {}) as { code?: string; device?: string; appVersion?: string };
+    if (app.pairLimiter.blocked(req.ip)) return reply.code(429).send(TOO_MANY);
     const row = db.prepare('select * from pairing_codes where code=?').get(String(b.code ?? '').replace(/\s/g, '')) as
       { code: string; terminal_id: string; expires_at: number; used: number } | undefined;
-    if (!row || row.used || row.expires_at < Date.now()) return reply.code(400).send({ error: 'Code already used or expired' });
+    if (!row || row.used || row.expires_at < Date.now()) { app.pairLimiter.fail(req.ip); return reply.code(400).send({ error: 'Code already used or expired' }); }
     const t = db.prepare('select id,name from terminals where id=? and active=1').get(row.terminal_id) as { id: string; name: string } | undefined;
     if (!t) return reply.code(400).send({ error: 'Code already used or expired' });
+    app.pairLimiter.clear(req.ip);
     db.prepare('update pairing_codes set used=1 where code=?').run(row.code);
     db.prepare('update terminals set device=?, app_version=?, last_seen=? where id=?').run(b.device ?? '', b.appVersion ?? '', new Date().toISOString(), t.id);
     return { terminalToken: app.jwt.sign({ kind: 'terminal', terminalId: t.id }), terminal: { id: t.id, name: t.name } };

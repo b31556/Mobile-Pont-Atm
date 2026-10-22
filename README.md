@@ -20,7 +20,7 @@ JWT_SECRET=change-me ADMIN_EMAIL=admin@pont.example ADMIN_PASSWORD='choose-a-pas
 ```
 
 - The admin site is at `http://localhost:3000/admin/`. The admin account is created on first start from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
-- `PORT` (default 3000), `DB_PATH` (default `./data/pont.db`; photos are stored next to it) and `JWT_SECRET` (required) are the settings.
+- `PORT` (default 3000), `DB_PATH` (default `./data/pont.db`; photos are stored next to it) and `JWT_SECRET` (required; use a long random value) are the settings. Set `TRUST_PROXY=1` when the server sits behind a reverse proxy, so attempt limits count each client separately.
 - Tests: `npm test`.
 - Put it behind HTTPS before real use. The release app refuses plain HTTP.
 
@@ -56,4 +56,5 @@ The app reads the card's UID (4, 7 or 10 bytes) and sends it to the server, whic
 - A charge carries a one-time key. If the connection drops and the operator taps again, the server returns the original result instead of crediting twice.
 - Storno reverses one charge in full and is refused if the card has already spent those points.
 - Blocked cards and unregistered tags are refused with a clear message and change nothing.
-- No offline mode: with no connection nothing is charged.
+- No offline mode. If the connection drops during a charge, the phone says it couldn't confirm: the card may already have been credited, so the operator taps again (the server answers once) or checks History before charging again.
+- Staff sessions last 12 hours and end at once when a password is reset or an account is switched off. Login and pairing lock out for 15 minutes after 10 wrong attempts.

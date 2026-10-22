@@ -42,10 +42,13 @@ fun ResultScreen(
 ) {
     when (val o = done.outcome) {
         is ChargeOutcome.Success -> SuccessResult(done.amount, o, api, terminal, onNext, onStorno)
-        is ChargeOutcome.Blocked -> Refusal("Card is blocked", "Ask an admin to unblock it. No points were given.", o.name, o.photoUrl, api, null, onNext)
-        ChargeOutcome.UnknownCard -> Refusal("Card not registered", "Tag ${done.uid} isn't in the system. Ask an admin to add it. No points were given.", null, null, api, null, onNext)
-        ChargeOutcome.NoConnection -> Refusal("No connection", "Nothing was charged. Check the network, then tap the card again.", null, null, api, onRetry, onNext)
-        is ChargeOutcome.Failed -> Refusal("Couldn't give points", o.message, null, null, api, onRetry, onNext)
+        else -> {
+            val copy = refusalCopy(o, done.uid)!!
+            val holder = (o as? ChargeOutcome.Blocked)
+            // After a lost connection the operator can tap the same card again; the same key makes the server answer once.
+            val retry = if (o is ChargeOutcome.NoConnection || o is ChargeOutcome.Failed) onRetry else null
+            Refusal(copy.title, copy.message, holder?.name, holder?.photoUrl, api, retry, onNext)
+        }
     }
 }
 

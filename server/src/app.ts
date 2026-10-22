@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { Db } from './db.js';
+import { AttemptLimiter } from './limiter.js';
 import { registerAuth } from './auth.js';
 import { registerStaff } from './routes/staff.js';
 import { registerTerminals } from './routes/terminals.js';
@@ -12,11 +13,13 @@ import { registerCards } from './routes/cards.js';
 import { registerCharges } from './routes/charges.js';
 import { registerPresets } from './routes/presets.js';
 
-export interface AppOptions { db: Db; jwtSecret: string; dataDir?: string }
+export interface AppOptions { db: Db; jwtSecret: string; dataDir?: string; trustProxy?: boolean }
 
 export function buildApp(opts: AppOptions): FastifyInstance {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, trustProxy: opts.trustProxy ?? false });
   app.decorate('db', opts.db);
+  app.decorate('loginLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
+  app.decorate('pairLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
   app.register(jwt, { secret: opts.jwtSecret });
   app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 } });
   app.register(fastifyStatic, { root: join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'admin'), prefix: '/admin/' });
@@ -32,5 +35,5 @@ export function buildApp(opts: AppOptions): FastifyInstance {
 }
 
 declare module 'fastify' {
-  interface FastifyInstance { db: Db }
+  interface FastifyInstance { db: Db; loginLimiter: AttemptLimiter; pairLimiter: AttemptLimiter }
 }
