@@ -27,7 +27,7 @@
 ### Task 1: Rules engine and settings
 **Files:** Create `server/src/presence.ts`; Test `server/test/presence-rules.test.ts`
 **Produces:** `type PresenceSettings = {pointsPerBlock; blockMinutes; rounding; minMinutes; maxPointsVisit: number|null; maxPoints24h: number|null; maxStayHours; cooldownSeconds}`; `DEFAULT_SETTINGS`; `validateSettings(input: unknown): {ok: true, value: PresenceSettings} | {ok: false, error: string}`; `computePoints(s, minutes, remaining24h: number|null): {raw: number; awarded: number; cappedBy: null|'visit'|'24h'}`; `getSettings(db)`, `saveSettings(db, s)` (table `presence_settings`, one row).
-- [ ] Write failing tests: 8p/12min with down/up/nearest/prorata at 5, 12, 17, 18, 30, 50 min (down: 0,8,8,8,16,24; up: 8,8,16,16,24,40; nearest: 0,8,8,16,16,32 [18 min = 1.5 units rounds to 2]; prorata: 3,8,11,12,20,33); min minutes gate; visit cap; 24h cap (remaining 5 gives 5, `cappedBy` '24h'; remaining 0 gives 0); both caps (visit applied first, label is the one that reduced last); validation accepts defaults, rejects each out-of-range field with a message naming the field.
+- [ ] Write failing tests: 8p/12min with down/up/nearest/prorata at 5, 12, 17, 18, 30, 50 min (down: 0,8,8,8,16,32; up: 8,8,16,16,24,40; nearest: 0,8,8,16,24,32 [half rounds up]; prorata: 3,8,11,12,20,33); min minutes gate; visit cap; 24h cap (remaining 5 gives 5, `cappedBy` '24h'; remaining 0 gives 0); both caps (visit applied first, label is the one that reduced last); validation accepts defaults, rejects each out-of-range field with a message naming the field.
 - [ ] Run (FAIL), implement, run (PASS), commit.
 
 ### Task 2: Sessions, tap endpoint, terminal mode, admin API
