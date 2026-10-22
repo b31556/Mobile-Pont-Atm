@@ -55,7 +55,7 @@ fun ResultScreen(
 }
 
 @Composable
-private fun Header(color: Color, content: @Composable () -> Unit) {
+internal fun Header(color: Color, content: @Composable () -> Unit) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)).background(color).padding(horizontal = 20.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

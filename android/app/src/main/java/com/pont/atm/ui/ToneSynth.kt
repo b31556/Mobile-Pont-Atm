@@ -12,6 +12,8 @@ object Beeps {
     private fun buzz(hz: Int, ms: Int) = ToneSynth.Segment(hz, ms, gain = 0.5f, wave = ToneSynth.Wave.Buzzer)
     private fun gap(ms: Int) = ToneSynth.Segment(0, ms)
 
+    /** Signing in: one short soft beep. Signing out uses [success]. */
+    val checkIn = listOf(ToneSynth.Segment(1760, 110))
     val success = listOf(ToneSynth.Segment(1568, 70), ToneSynth.Segment(0, 25), ToneSynth.Segment(2093, 130))
     val refusal = listOf(buzz(1200, 140), gap(90), buzz(1200, 140), gap(90), buzz(1200, 140))
 }

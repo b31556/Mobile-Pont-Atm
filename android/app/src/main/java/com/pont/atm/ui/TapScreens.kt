@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.sp
 import com.pont.atm.nfc.NfcStatus
 import kotlinx.coroutines.delay
 
-private val Muted = Color(0xFF9FB1BD)
+internal val Muted = Color(0xFF9FB1BD)
 
 @Composable
 fun TapScreen(amount: Int, nfc: NfcStatus, onDebugTag: (String) -> Unit, onCancel: () -> Unit) {
@@ -81,7 +81,7 @@ private fun Row2(amount: Int) {
 }
 
 @Composable
-private fun Rings(modifier: Modifier = Modifier) {
+internal fun Rings(modifier: Modifier = Modifier) {
     val t = rememberInfiniteTransition(label = "rings")
     val phases = listOf(0, 800, 1600).map { offset ->
         t.animateFloat(0f, 1f, infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Restart, StartOffset(offset)), label = "ring$offset")

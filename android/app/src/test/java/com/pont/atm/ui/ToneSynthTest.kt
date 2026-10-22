@@ -82,4 +82,11 @@ class ToneSynthTest {
         fun rms(w: ToneSynth.Wave) = render(ToneSynth.Segment(1000, 200, gain = 0.5f, wave = w)).let { p -> kotlin.math.sqrt(p.sumOf { it.toDouble() * it } / p.size) }
         assertTrue("buzzer ${rms(ToneSynth.Wave.Buzzer)} vs sine ${rms(ToneSynth.Wave.Sine)}", rms(ToneSynth.Wave.Buzzer) > rms(ToneSynth.Wave.Sine) * 1.08)
     }
+
+    @Test fun aCheckInIsOneShortSoftBeepLowerThanTheCheckOutPair() {
+        assertEquals(1, beeps(Beeps.checkIn).size)
+        assertTrue("checkIn ${total(Beeps.checkIn)} ms", total(Beeps.checkIn) in 60..200)
+        assertEquals(ToneSynth.Wave.Sine, beeps(Beeps.checkIn).single().wave)
+        assertTrue("different from the check-out sound", Beeps.checkIn != Beeps.success)
+    }
 }
