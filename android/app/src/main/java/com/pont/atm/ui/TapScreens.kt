@@ -50,7 +50,7 @@ import kotlinx.coroutines.delay
 private val Muted = Color(0xFF9FB1BD)
 
 @Composable
-fun TapScreen(amount: Int, nfc: NfcStatus, onCancel: () -> Unit) {
+fun TapScreen(amount: Int, nfc: NfcStatus, onDebugTag: (String) -> Unit, onCancel: () -> Unit) {
     val ctx = LocalContext.current
     Column(Modifier.fillMaxSize().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -67,6 +67,7 @@ fun TapScreen(amount: Int, nfc: NfcStatus, onCancel: () -> Unit) {
                 NfcStatus.Unsupported -> Text("This phone has no NFC reader, so it can't be used as a terminal.", color = Muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
             }
         }
+        DebugTapButtons(onDebugTag)
         GhostButton("Cancel", Color.White, Modifier.padding(bottom = 16.dp), onCancel)
     }
 }
