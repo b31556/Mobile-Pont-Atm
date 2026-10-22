@@ -107,8 +107,8 @@ private fun Rings(modifier: Modifier = Modifier) {
 @Composable
 fun ProcessingScreen(uid: String) {
     var stage by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { delay(450); stage = 1; delay(500); stage = 2 }
-    val progress by animateFloatAsState(listOf(0.38f, 0.82f, 1f)[stage], tween(450), label = "progress")
+    LaunchedEffect(Unit) { delay(ProcessingTiming.STAGE_MS); stage = 1; delay(ProcessingTiming.STAGE_MS); stage = 2 }
+    val progress by animateFloatAsState(listOf(0.38f, 0.82f, 1f)[stage], tween(ProcessingTiming.STAGE_MS.toInt()), label = "progress")
     val steps = listOf("Reading card…", "Sending to server…", "Confirming…")
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         val shape = RoundedCornerShape(16.dp)

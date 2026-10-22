@@ -41,8 +41,6 @@ import com.pont.atm.nfc.NfcReader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private const val MIN_PROCESSING_MS = 1200L
-
 @Composable
 fun AppNav(graph: AppGraph, reader: NfcReader) {
     val session = graph.session
@@ -76,12 +74,12 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
         if (session.operatorToken == null && screen != Screen.Pair && screen != Screen.Login) { flow.reset(); screen = Screen.Login }
     }
 
-    // Minimum "processing" time so the progress bar is readable, then the POS beep with the result.
+    // A short minimum "processing" time so the progress bar is visible, then the POS beep with the result.
     LaunchedEffect(flowState) {
         when (val s = flowState) {
             is FlowState.Sending -> { sendStart = SystemClock.elapsedRealtime(); resultReady = false }
             is FlowState.Done -> {
-                val wait = MIN_PROCESSING_MS - (SystemClock.elapsedRealtime() - sendStart)
+                val wait = ProcessingTiming.remaining(SystemClock.elapsedRealtime() - sendStart)
                 if (wait > 0) delay(wait)
                 resultReady = true
                 online = s.outcome !is ChargeOutcome.NoConnection
