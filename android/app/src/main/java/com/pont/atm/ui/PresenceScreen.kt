@@ -50,11 +50,11 @@ fun limitNote(r: PresenceResult): String? = when (r.cappedBy) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PresenceScreen(state: PresenceState, api: PontApi, terminal: String, onMenu: () -> Unit, onDebugTag: (String) -> Unit) {
+fun PresenceScreen(state: PresenceState, api: PontApi, terminal: String, direction: String, zoneName: String?, onMenu: () -> Unit, onDebugTag: (String) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (state) {
-                PresenceState.Idle, is PresenceState.Sending -> Waiting(sending = state is PresenceState.Sending, onDebugTag = onDebugTag)
+                PresenceState.Idle, is PresenceState.Sending -> Waiting(sending = state is PresenceState.Sending, title = idleTitle(direction), zoneName = zoneName, onDebugTag = onDebugTag)
                 is PresenceState.Showing -> when (val o = state.outcome) {
                     is PresenceOutcome.Done -> Visit(o.result, api)
                     is PresenceOutcome.Blocked -> Refused(presenceRefusalCopy(o)!!, o.name, o.photoUrl, api)
@@ -70,9 +70,10 @@ fun PresenceScreen(state: PresenceState, api: PontApi, terminal: String, onMenu:
 }
 
 @Composable
-private fun Waiting(sending: Boolean, onDebugTag: (String) -> Unit) {
+private fun Waiting(sending: Boolean, title: String, zoneName: String?, onDebugTag: (String) -> Unit) {
     Column(Modifier.fillMaxSize().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text(if (sending) "One moment…" else "Tap your card", style = PontType.display(36), color = Color.White, textAlign = TextAlign.Center)
+        Text(if (sending) "One moment…" else title, style = PontType.display(36), color = Color.White, textAlign = TextAlign.Center)
+        if (zoneName != null) Text(zoneName, color = Muted, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
         Rings(Modifier.padding(vertical = 40.dp))
         DebugTapButtons(onDebugTag)
     }
@@ -80,15 +81,11 @@ private fun Waiting(sending: Boolean, onDebugTag: (String) -> Unit) {
 
 @Composable
 private fun Visit(r: PresenceResult, api: PontApi) {
-    val (color, title) = when (r.action) {
-        "in" -> PontColors.Green to "Checked in"
-        "out" -> PontColors.Green to "Checked out"
-        "expired_in" -> Amber to "Checked in"
-        else -> PontColors.Ink2 to "Already checked in"
-    }
+    val copy = visitCopy(r)
+    val color = when (copy.tone) { Tone.Good -> PontColors.Green; Tone.Neutral -> PontColors.Ink2; Tone.Warn -> Amber }
     Column(Modifier.fillMaxSize()) {
         Header(color) {
-            Text(title, style = PontType.display(30), color = Color.White)
+            Text(copy.title, style = PontType.display(30), color = Color.White)
             if (r.action == "out") {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(if (r.points > 0) "+${r.points}" else "0", style = PontType.display(54), color = Color.White)
@@ -101,20 +98,14 @@ private fun Visit(r: PresenceResult, api: PontApi) {
             Text(r.card.name, style = PontType.display(26), modifier = Modifier.padding(top = 14.dp), textAlign = TextAlign.Center)
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            when (r.action) {
-                "in" -> Line("Since ${formatTime(r.inAt)}")
-                "cooldown" -> Line("Since ${formatTime(r.inAt)}. Tap again later to check out.")
-                "expired_in" -> {
-                    Line("Since ${formatTime(r.inAt)}")
-                    Text("Your last visit wasn't signed out, so it earned no points.", color = Amber, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-                }
-                "out" -> {
-                    Line("Inside ${duration(r.minutes ?: 0)}  ·  ${formatTime(r.inAt)} to ${formatTime(r.outAt ?: r.inAt)}")
-                    limitNote(r)?.let { Text(it, color = Amber, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center) }
+            copy.notes.forEach { note ->
+                when {
+                    note.startsWith("Balance:") -> Line(note, strong = r.action == "out")
+                    note.contains("earned no points") || note.endsWith("points would have been earned.") || note.startsWith("Daily limit") ->
+                        Text(note, color = Amber, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                    else -> Line(note)
                 }
             }
-            if (r.action == "out" || r.action == "in") Line("Today: ${r.today.earned}${r.today.max?.let { " of $it" } ?: ""} points")
-            Line("Balance: ${r.card.balance} points", strong = r.action == "out")
         }
     }
 }

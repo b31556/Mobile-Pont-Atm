@@ -9,6 +9,10 @@ interface SessionStore {
 
     /** `atm` or `presence`, as last set by the server. Used until the next answer arrives. */
     var mode: String
+
+    /** For a check-in phone: `in`, `out` or `toggle`, and the zone it belongs to. */
+    var direction: String
+    var zoneName: String?
 }
 
 class InMemorySessionStore : SessionStore {
@@ -16,6 +20,8 @@ class InMemorySessionStore : SessionStore {
     override var terminalToken: String? = null
     override var terminalName: String? = null
     override var mode = "atm"
+    override var direction = "toggle"
+    override var zoneName: String? = null
 }
 
 class PrefsSessionStore(context: Context, defaultBaseUrl: String) : SessionStore {
@@ -32,4 +38,6 @@ class PrefsSessionStore(context: Context, defaultBaseUrl: String) : SessionStore
     override var terminalToken: String? get() = str("terminalToken"); set(v) = put("terminalToken", v)
     override var terminalName: String? get() = str("terminalName"); set(v) = put("terminalName", v)
     override var mode: String get() = str("mode") ?: "atm"; set(v) = put("mode", v)
+    override var direction: String get() = str("direction") ?: "toggle"; set(v) = put("direction", v)
+    override var zoneName: String? get() = str("zoneName"); set(v) = put("zoneName", v)
 }

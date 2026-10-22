@@ -158,7 +158,7 @@ class ApiTest {
 
     @Test fun configReadsTheModeAndName() = runBlocking {
         server.enqueue(json(200, """{"mode":"presence","name":"Door"}"""))
-        assertEquals(TerminalConfig("presence", "Door"), api.config().getOrThrow())
+        assertEquals(TerminalConfig("presence", "Door", "toggle", null), api.config().getOrThrow())
         val req = server.takeRequest()
         assertEquals("/terminal/config", req.path); assertEquals("Bearer term-tok", req.getHeader("Authorization"))
     }
@@ -213,5 +213,30 @@ class ApiTest {
     @Test fun theModeIsRememberedAndDefaultsToAtm() {
         assertEquals("atm", InMemorySessionStore().mode)
         session.mode = "presence"; assertEquals("presence", session.mode)
+    }
+
+    @Test fun configCarriesThePointTypeAndZone() = runBlocking {
+        server.enqueue(json(200, """{"mode":"presence","name":"Door","direction":"in","zoneName":"Gym"}"""))
+        assertEquals(TerminalConfig("presence", "Door", "in", "Gym"), api.config().getOrThrow())
+    }
+
+    @Test fun aCheckInCarriesTheZone() = runBlocking {
+        server.enqueue(json(200, """{"action":"in","card":{"id":"c1","name":"Anna","photoUrl":"/p","balance":46},"zone":{"id":"z1","name":"Gym"},
+            "inAt":"2026-10-22T14:00:00.000Z","points":0,"raw":0,"cappedBy":null,"today":{"earned":0,"max":null}}"""))
+        assertEquals(ZoneRef("z1", "Gym"), (api.presenceTap("u", "k") as PresenceOutcome.Done).result.zone)
+    }
+
+    @Test fun notCheckedInHasNoCheckInTime() = runBlocking {
+        server.enqueue(json(200, """{"action":"not_in","card":{"id":"c1","name":"Anna","photoUrl":"/p","balance":46},"zone":{"id":"z1","name":"Gym"},
+            "points":0,"raw":0,"cappedBy":null,"today":{"earned":0,"max":null}}"""))
+        val r = (api.presenceTap("u", "k") as PresenceOutcome.Done).result
+        assertEquals("not_in", r.action); assertNull(r.inAt)
+    }
+
+    @Test fun thePointTypeAndZoneAreRemembered() {
+        val fresh = InMemorySessionStore()
+        assertEquals("toggle", fresh.direction); assertNull(fresh.zoneName)
+        session.direction = "out"; session.zoneName = "Gym"
+        assertEquals("out", session.direction); assertEquals("Gym", session.zoneName)
     }
 }

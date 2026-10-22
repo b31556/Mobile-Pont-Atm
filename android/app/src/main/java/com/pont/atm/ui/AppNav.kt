@@ -73,6 +73,8 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     var nfc by remember { mutableStateOf(reader.status()) }
     // `atm` or `presence`: set by the server per terminal, remembered so a restart opens in the right mode.
     var mode by remember { mutableStateOf(session.mode) }
+    var direction by remember { mutableStateOf(session.direction) }
+    var zoneName by remember { mutableStateOf(session.zoneName) }
     val currentMode by rememberUpdatedState(mode)
     val presenceState by graph.presence.state.collectAsState()
 
@@ -89,6 +91,8 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
         noteResult(r)
         r.onSuccess { c ->
             session.terminalName = c.name
+            direction = c.direction; session.direction = c.direction
+            zoneName = c.zoneName; session.zoneName = c.zoneName
             val idle = flow.state.value is FlowState.Idle && graph.presence.state.value !is PresenceState.Sending
             if (c.mode != mode && idle) { mode = c.mode; session.mode = c.mode; graph.presence.clear() }
         }
@@ -129,9 +133,10 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
         val st = presenceState
         if (st is PresenceState.Showing) {
             online = st.outcome !is PresenceOutcome.NoConnection
-            when (val o = st.outcome) {
-                is PresenceOutcome.Done -> if (o.result.action == "out") graph.beeper.ok() else graph.beeper.checkIn()
-                else -> graph.beeper.error()
+            when (presenceSound(st.outcome)) {
+                PresenceSound.Success -> graph.beeper.ok()
+                PresenceSound.CheckIn -> graph.beeper.checkIn()
+                PresenceSound.Refusal -> graph.beeper.error()
             }
             delay(PRESENCE_SHOW_MS)
             graph.presence.clear()
@@ -160,7 +165,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
                 Box(Modifier.weight(1f).fillMaxWidth().then(if (showTabs) Modifier else Modifier.navigationBarsPadding())) {
                     when {
                         presenceMode -> PresenceScreen(
-                            presenceState, api, session.terminalName.orEmpty(), onMenu = { menu = true },
+                            presenceState, api, session.terminalName.orEmpty(), direction, zoneName, onMenu = { menu = true },
                             onDebugTag = { uid -> scope.launch { graph.presence.onTag(uid) } },
                         )
                         waiting -> TapScreen((flowState as FlowState.WaitingForCard).amount, nfc, onDebugTag = { uid -> scope.launch { flow.onTag(uid) } }) { flow.cancel() }

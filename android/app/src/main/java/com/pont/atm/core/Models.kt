@@ -44,7 +44,10 @@ interface PresetsApi {
 
 // ---- check-in mode ----
 
-@Serializable data class TerminalConfig(val mode: String, val name: String)
+/** [direction] is `in`, `out` or `toggle`; [zoneName] is the zone a check-in point belongs to. */
+@Serializable data class TerminalConfig(val mode: String, val name: String, val direction: String = "toggle", val zoneName: String? = null)
+
+@Serializable data class ZoneRef(val id: String, val name: String)
 
 @Serializable data class PresenceCard(val id: String, val name: String, val photoUrl: String, val balance: Int)
 
@@ -52,12 +55,17 @@ interface PresetsApi {
 @Serializable data class PresenceToday(val earned: Int, val max: Int? = null)
 
 /**
- * What a check-in tap did. [action] is `in`, `out`, `cooldown` (tapped again too soon, nothing changed)
- * or `expired_in` (the last visit was never signed out, earned nothing, and a new one started).
+ * What a check-in tap did. [action] is
+ * `in` / `out`: signed in or out; `cooldown`: tapped again too soon, nothing changed;
+ * `already_in`: a sign-in point, but the card is already inside, nothing changed;
+ * `not_in`: a sign-out point, but the card is not inside, nothing changed;
+ * `expired_in` / `expired_out`: the last visit was never signed out in time and earned nothing
+ * (and, at a sign-in point, a new visit started). [inAt] is missing for `not_in`.
  */
 @Serializable data class PresenceResult(
-    val action: String, val card: PresenceCard, val inAt: String, val outAt: String? = null, val minutes: Int? = null,
+    val action: String, val card: PresenceCard, val inAt: String? = null, val outAt: String? = null, val minutes: Int? = null,
     val points: Int = 0, val raw: Int = 0, val cappedBy: String? = null, val today: PresenceToday, val expiredMinutes: Int? = null,
+    val zone: ZoneRef? = null,
 )
 
 sealed interface PresenceOutcome {
