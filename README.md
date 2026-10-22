@@ -44,7 +44,7 @@ Address for the app and admin site: `http://<machine>.<tailnet>.ts.net:3000` (th
 1. In the admin site: **Staff**, add an operator (the temporary password is shown once).
 2. **Terminals**, **Pair a phone**: name it (like "Bar 2") and note the 6-digit code (valid 10 minutes).
 3. **Cards**, **Add card**: holder name, photo, card UID, starting points. To find a card's UID, tap it on a terminal: an unregistered card shows its UID on the phone.
-4. On the phone: enter the server address and the code, then sign in with the operator's email and password.
+4. On the phone: enter the pairing code, then sign in with the operator's email and password. The server address is fixed in the app at build time (`DEFAULT_BASE_URL` in `android/app/build.gradle.kts`); change it there and rebuild to point at another server.
 
 ## Build the app
 
@@ -58,7 +58,7 @@ export ANDROID_HOME=$HOME/Android/Sdk
 ./gradlew :app:testDebugUnitTest    # JVM unit tests
 ```
 
-The debug build allows plain HTTP, defaults the server address to `http://localhost:3000` (use `adb reverse tcp:3000 tcp:3000` with a USB phone), and shows two small "debug tap" links on the waiting-for-card screen so you can test without a card.
+Both builds use the fixed server address above. Plain HTTP is allowed only to `*.ts.net` (Tailscale encrypts it) in release, and to anything in debug. The debug build also shows two small "debug tap" links on the waiting-for-card screen so you can test without a card.
 
 ## How cards are identified
 
