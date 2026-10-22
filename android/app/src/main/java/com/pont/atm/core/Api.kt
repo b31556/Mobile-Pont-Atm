@@ -131,5 +131,5 @@ class PontApi(
     }
 
     /** Forget this phone's pairing. An admin has to create a new pairing code to use it again. */
-    fun unpair() { session.terminalToken = null; session.terminalName = null; session.mode = "atm" }
+    fun unpair() { session.terminalToken = null; session.terminalName = null; session.mode = "atm"; session.direction = "toggle"; session.zoneName = null }
 }
