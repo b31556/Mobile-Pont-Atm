@@ -119,7 +119,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f).fillMaxWidth().then(if (showTabs) Modifier else Modifier.navigationBarsPadding())) {
                     when {
-                        waiting -> TapScreen((flowState as FlowState.WaitingForCard).amount, nfc) { flow.cancel() }
+                        waiting -> TapScreen((flowState as FlowState.WaitingForCard).amount, nfc, onDebugTag = { uid -> scope.launch { flow.onTag(uid) } }) { flow.cancel() }
                         showProcessing -> ProcessingScreen(
                             (flowState as? FlowState.Sending)?.uid ?: (flowState as FlowState.Done).uid,
                         )
