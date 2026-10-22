@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.js';
+import { stamp } from '../clock.js';
 import { normalizeUid } from '../uid.js';
 import { avatarSvg, STYLES } from '../avatar.js';
 
@@ -77,15 +78,20 @@ export function registerCards(app: FastifyInstance, dataDir: string) {
 
   app.post('/cards/:id/adjust', { preHandler: app.requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const delta = (req.body as { delta?: number } | undefined)?.delta;
+    const body = (req.body ?? {}) as { delta?: number; reason?: unknown };
+    const delta = body.delta;
     const card = get(id);
     if (!card) return reply.code(404).send({ error: 'Card not found' });
     if (!Number.isInteger(delta) || delta === 0) return reply.code(400).send({ error: 'Enter a whole number, not 0' });
     if (card.balance + delta! < 0) return reply.code(400).send({ error: 'Balance can’t go below 0' });
+    if (body.reason !== undefined && body.reason !== null && (typeof body.reason !== 'string' || body.reason.trim().length > 200)) {
+      return reply.code(400).send({ error: 'The reason must be text of up to 200 characters' });
+    }
+    const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim() : null;
     db.transaction(() => {
       db.prepare('update cards set balance=balance+? where id=?').run(delta, id);
-      db.prepare('insert into balance_adjustments(id,card_id,delta,staff_id,created_at) values(?,?,?,?,?)')
-        .run(randomUUID(), id, delta, req.user.id, new Date().toISOString());
+      db.prepare('insert into balance_adjustments(id,card_id,delta,staff_id,created_at,balance_after,reason) values(?,?,?,?,?,?,?)')
+        .run(randomUUID(), id, delta, req.user.id, stamp().toISOString(), card.balance + delta!, reason);
     })();
     return cardJson(get(id)!);
   });

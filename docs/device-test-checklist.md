@@ -51,3 +51,19 @@ Phone model / Android version: ______________   Card(s): ______________   App bu
 ## Results
 
 Notes / failures:
+
+## Check-in mode
+- [ ] In admin, make two zones with different rules (for example 8 points per 12 minutes and 3 points per 10 minutes). Set one phone to Check-in, zone A, **Sign in only**; a second phone (or the same one later) to Check-in, zone B, **Sign out only**. Both phones switch within about 30 seconds without re-pairing
+- [ ] The waiting screen reads "Tap to sign in" / "Tap to sign out" / "Tap your card" and shows the zone name; there are no buttons anywhere
+- [ ] Tap at the sign-in point: "Checked in" with photo, name, time, zone. After 5 seconds it returns to waiting. Tapping the next card straight away replaces the screen at once
+- [ ] Tapping the same card again within the lock-out: "Already checked in", nothing changes
+- [ ] Wait a few minutes, tap at the sign-out point: "Checked out" with minutes inside and points that match the **zone A** rules (and the admin preview table)
+- [ ] Sign-in point after signing in again later (while inside): "Already checked in", no points move. Sign-out point with nobody inside: "Not checked in"
+- [ ] Sign-in at A, sign out at a Toggle point in zone B: paid by zone A's rules
+- [ ] Rules cap: set a per-visit or 24-hour cap and check the note ("Visit limit reached…" / "Daily limit reached…") and the totals
+- [ ] A forgotten visit (set the longest stay to 1 hour, wait): the next tap says the last visit earned no points
+- [ ] Unregistered card: "Card not registered, an admin has been told"; it appears under Suggested cards in admin without anyone pressing a button
+- [ ] Long-press the terminal name: the menu opens (beep switch, Unpair). Unpairing asks first
+- [ ] Switch the terminal back to ATM in admin: the phone shows the keypad within about 30 seconds
+- [ ] Admin: Check-in page shows who is inside; Sign out awards points, Discard doesn't; Storno of a check-out award in Transactions frees the 24-hour allowance
+- [ ] Admin: grant and deduct points on a card with a reason; both appear in Transactions as Admin grant / Admin deduction with the admin's name and the reason
