@@ -76,3 +76,85 @@ describe('staff auth', () => {
     void makeTerminal;
   });
 });
+
+describe('token lifetime and revocation', () => {
+  it('staff tokens expire after 12 hours', async () => {
+    const { app, adminToken } = await makeApp();
+    const p = app.jwt.decode<{ iat: number; exp: number }>(adminToken)!;
+    expect(p.exp - p.iat).toBe(12 * 60 * 60);
+  });
+
+  it('an expired staff token is refused', async () => {
+    const { app, db } = await makeApp();
+    const id = (db.prepare("select id from staff where email='admin@pont.example'").get() as { id: string }).id;
+    const old = Math.floor(Date.now() / 1000) - 13 * 3600;
+    const token = app.jwt.sign({ kind: 'staff', id, role: 'admin', v: 0, iat: old } as any, { expiresIn: 12 * 3600 });
+    expect((await app.inject({ method: 'GET', url: '/auth/me', headers: auth(token) })).statusCode).toBe(401);
+  });
+
+  it('a password reset signs out the old token but the new password works', async () => {
+    const { app, db, adminToken } = await makeApp();
+    const op = await makeOperator(app, db);
+    const id = (db.prepare("select id from staff where email='eszter@pont.example'").get() as { id: string }).id;
+    const patch = await app.inject({ method: 'PATCH', url: `/staff/${id}`, headers: auth(adminToken), payload: { password: 'brand-new-pw' } });
+    expect(patch.statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/auth/me', headers: auth(op.token) })).statusCode).toBe(401);
+    expect(await login(app, 'eszter@pont.example', 'brand-new-pw', op.terminalToken)).toBeTruthy();
+  });
+
+  it('switching an account off and on again does not revive its old token', async () => {
+    const { app, db, adminToken } = await makeApp();
+    const op = await makeOperator(app, db);
+    const id = (db.prepare("select id from staff where email='eszter@pont.example'").get() as { id: string }).id;
+    await app.inject({ method: 'PATCH', url: `/staff/${id}`, headers: auth(adminToken), payload: { active: false } });
+    await app.inject({ method: 'PATCH', url: `/staff/${id}`, headers: auth(adminToken), payload: { active: true } });
+    expect((await app.inject({ method: 'GET', url: '/auth/me', headers: auth(op.token) })).statusCode).toBe(401);
+  });
+});
+
+describe('attempt limits', () => {
+  const bad = (app: any, email = 'admin@pont.example') =>
+    app.inject({ method: 'POST', url: '/auth/login', payload: { email, password: 'wrong' } });
+
+  it('locks login after 10 wrong passwords, even for the right one', async () => {
+    const { app } = await makeApp();
+    for (let i = 0; i < 10; i++) expect((await bad(app)).statusCode).toBe(401);
+    const blocked = await bad(app);
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.json().error).toMatch(/Too many attempts/);
+    const right = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@pont.example', password: 'adminpass' } });
+    expect(right.statusCode).toBe(429);
+  });
+
+  it('a different account is not locked by someone else’s failures', async () => {
+    const { app, db } = await makeApp();
+    seedStaff(db, { name: 'Other', email: 'other@pont.example', password: 'pw123456', role: 'admin' });
+    for (let i = 0; i < 11; i++) await bad(app);
+    expect((await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'other@pont.example', password: 'pw123456' } })).statusCode).toBe(200);
+  });
+
+  it('a successful login resets the counter', async () => {
+    const { app } = await makeApp();
+    for (let i = 0; i < 9; i++) await bad(app);
+    expect((await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@pont.example', password: 'adminpass' } })).statusCode).toBe(200);
+    for (let i = 0; i < 9; i++) expect((await bad(app)).statusCode).toBe(401);
+  });
+
+  it('locks pairing after 10 wrong codes', async () => {
+    const { app } = await makeApp();
+    const pair = (code: string) => app.inject({ method: 'POST', url: '/pair', payload: { code, device: 'x', appVersion: '1' } });
+    for (let i = 0; i < 10; i++) expect((await pair(String(100000 + i))).statusCode).toBe(400);
+    expect((await pair('999999')).statusCode).toBe(429);
+  });
+
+  it('clients behind a trusted proxy are counted separately by forwarded address', async () => {
+    const { buildApp } = await import('../src/app.js');
+    const { openDb } = await import('../src/db.js');
+    const app = buildApp({ db: openDb(':memory:'), jwtSecret: 's', trustProxy: true });
+    await app.ready();
+    const pair = (ip: string) => app.inject({ method: 'POST', url: '/pair', headers: { 'x-forwarded-for': ip }, payload: { code: '000000', device: 'x', appVersion: '1' } });
+    for (let i = 0; i < 10; i++) await pair('10.0.0.1');
+    expect((await pair('10.0.0.1')).statusCode).toBe(429);
+    expect((await pair('10.0.0.2')).statusCode).toBe(400);
+  });
+});

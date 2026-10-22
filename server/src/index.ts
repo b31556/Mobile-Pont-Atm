@@ -9,7 +9,7 @@ const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) { console.error('JWT_SECRET is required'); process.exit(1); }
 mkdirSync(dirname(dbPath), { recursive: true });
 const db = openDb(dbPath);
-const app = buildApp({ db, jwtSecret, dataDir: dirname(dbPath) });
+const app = buildApp({ db, jwtSecret, dataDir: dirname(dbPath), trustProxy: process.env.TRUST_PROXY === '1' });
 const hasStaff = db.prepare('select count(*) c from staff').get() as { c: number };
 if (hasStaff.c === 0 && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
   seedStaff(db, { name: 'Admin', email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD, role: 'admin' });

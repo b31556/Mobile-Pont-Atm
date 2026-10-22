@@ -34,6 +34,7 @@ export function registerStaff(app: FastifyInstance) {
     if (b.role !== undefined) { set.push('role=?'); vals.push(b.role); }
     if (b.active !== undefined) { set.push('active=?'); vals.push(b.active ? 1 : 0); }
     if (b.password !== undefined) { set.push('password_hash=?'); vals.push(bcrypt.hashSync(b.password, 10)); }
+    if (b.password !== undefined || b.active !== undefined || b.role !== undefined) set.push('token_version=token_version+1');
     if (set.length) app.db.prepare(`update staff set ${set.join(',')} where id=?`).run(...vals, id);
     return app.db.prepare(`select ${pub} from staff where id=?`).get(id);
   });

@@ -1,8 +1,10 @@
 package com.pont.atm.core
 
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 fun interface ChargeApi {
     suspend fun charge(uid: String, amount: Int, key: String): ChargeOutcome
@@ -54,7 +56,15 @@ class ChargeFlow(private val api: ChargeApi, private val newKey: () -> String) {
         if (!_state.compareAndSet(waiting, FlowState.Sending(waiting.amount, uid))) return
         if (keyUid != null && keyUid != uid) key = newKey()
         keyUid = uid
-        val outcome = api.charge(uid, waiting.amount, key!!)
-        _state.value = FlowState.Done(waiting.amount, outcome, uid)
+        // The Activity that delivered the tag can be recreated mid-request. The request still reaches the server,
+        // so its answer must still reach the state, or the phone would sit on "Sending" while the card is credited.
+        withContext(NonCancellable) {
+            val outcome = try {
+                api.charge(uid, waiting.amount, key!!)
+            } catch (e: Exception) {
+                ChargeOutcome.Failed("Something went wrong in the app.")
+            }
+            _state.value = FlowState.Done(waiting.amount, outcome, uid)
+        }
     }
 }

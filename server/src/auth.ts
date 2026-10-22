@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from './db.js';
+import { TOO_MANY } from './limiter.js';
 
 export type Role = 'admin' | 'operator';
+export const STAFF_TOKEN_SECONDS = 12 * 60 * 60;
 export interface StaffUser { id: string; name: string; role: Role; terminalId?: string }
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { kind: 'staff'; id: string; role: Role; terminalId?: string } | { kind: 'terminal'; terminalId: string };
+    payload: { kind: 'staff'; id: string; role: Role; terminalId?: string; v: number } | { kind: 'terminal'; terminalId: string };
     user: StaffUser;
   }
 }
@@ -43,10 +45,11 @@ export function registerAuth(app: FastifyInstance) {
 
   async function staffCheck(req: FastifyRequest, reply: FastifyReply, want?: Role) {
     try { await req.jwtVerify(); } catch { return unauthorized(reply); }
-    const p = req.user as unknown as { kind?: string; id: string; role: Role; terminalId?: string };
+    const p = req.user as unknown as { kind?: string; id: string; role: Role; terminalId?: string; v?: number };
     if (p.kind !== 'staff') return unauthorized(reply);
-    const row = app.db.prepare('select id,name,role,active from staff where id=?').get(p.id) as { id: string; name: string; role: Role; active: number } | undefined;
+    const row = app.db.prepare('select id,name,role,active,token_version from staff where id=?').get(p.id) as { id: string; name: string; role: Role; active: number; token_version: number } | undefined;
     if (!row || !row.active) return unauthorized(reply, 'This account is switched off');
+    if (p.v !== row.token_version) return unauthorized(reply);
     if (row.role === 'operator') {
       const t = app.db.prepare('select active from terminals where id=?').get(p.terminalId ?? '') as { active: number } | undefined;
       if (!t || !t.active) return unauthorized(reply, 'This phone was revoked');
@@ -61,11 +64,15 @@ export function registerAuth(app: FastifyInstance) {
 
   app.post('/auth/login', async (req, reply) => {
     const b = (req.body ?? {}) as { email?: string; password?: string; terminalToken?: string };
+    const limitKey = `${req.ip}|${(b.email ?? '').toLowerCase()}`;
+    if (app.loginLimiter.blocked(limitKey)) return reply.code(429).send(TOO_MANY);
     const row = app.db.prepare('select * from staff where email=?').get((b.email ?? '').toLowerCase()) as
-      { id: string; name: string; password_hash: string; role: Role; active: number } | undefined;
+      { id: string; name: string; password_hash: string; role: Role; active: number; token_version: number } | undefined;
     if (!row || !row.active || !bcrypt.compareSync(b.password ?? '', row.password_hash)) {
+      app.loginLimiter.fail(limitKey);
       return reply.code(401).send({ error: 'Wrong email or password' });
     }
+    app.loginLimiter.clear(limitKey);
     let terminalId: string | undefined;
     if (row.role === 'operator') {
       if (!b.terminalToken) return reply.code(400).send({ error: 'This phone is not paired yet' });
@@ -73,7 +80,7 @@ export function registerAuth(app: FastifyInstance) {
       if ('error' in t) return reply.code(401).send({ error: t.error });
       terminalId = t.terminalId;
     }
-    const token = app.jwt.sign({ kind: 'staff', id: row.id, role: row.role, terminalId });
+    const token = app.jwt.sign({ kind: 'staff', id: row.id, role: row.role, terminalId, v: row.token_version }, { expiresIn: STAFF_TOKEN_SECONDS });
     return { token, user: { id: row.id, name: row.name, role: row.role } };
   });
 
