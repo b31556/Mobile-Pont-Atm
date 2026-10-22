@@ -1,6 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { normalizeUid } from '../uid.js';
+import type { Db } from '../db.js';
 import { findCardByUid } from './cards.js';
+
+/** Remembers an unregistered card so an admin can add it. Repeats count up. */
+export function recordSuggestion(db: Db, uid: string, terminalId: string | undefined): void {
+  const now = new Date().toISOString();
+  db.prepare(`insert into card_suggestions(uid,terminal_id,first_seen,last_seen,count) values(?,?,?,?,1)
+    on conflict(uid) do update set terminal_id=excluded.terminal_id, last_seen=excluded.last_seen, count=count+1`)
+    .run(uid, terminalId ?? null, now, now);
+}
 
 /** Unregistered cards that an operator tapped and asked an admin to add. */
 export function registerSuggestions(app: FastifyInstance) {
@@ -10,10 +19,7 @@ export function registerSuggestions(app: FastifyInstance) {
     const uid = normalizeUid(String((req.body as { cardUid?: string } | undefined)?.cardUid ?? ''));
     if (!uid) return reply.code(400).send({ error: 'That is not a valid card UID', code: 'bad_uid' });
     if (findCardByUid(db, uid)) return reply.code(409).send({ error: 'That card is already registered.', code: 'already_registered' });
-    const now = new Date().toISOString();
-    db.prepare(`insert into card_suggestions(uid,terminal_id,first_seen,last_seen,count) values(?,?,?,?,1)
-      on conflict(uid) do update set terminal_id=excluded.terminal_id, last_seen=excluded.last_seen, count=count+1`)
-      .run(uid, req.user.terminalId, now, now);
+    recordSuggestion(db, uid, req.user.terminalId);
     return { ok: true };
   });
 

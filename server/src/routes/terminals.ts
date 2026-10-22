@@ -28,7 +28,7 @@ export function registerTerminals(app: FastifyInstance) {
       return {
         id: t.id, name: t.name, place: t.place, lastSeen: t.last_seen, appVersion: t.app_version, device: t.device,
         online: !!t.last_seen && Date.now() - Date.parse(t.last_seen) < ONLINE_WINDOW_MS,
-        givenToday: given.s, operator: t.last_operator ?? '',
+        givenToday: given.s, operator: t.last_operator ?? '', mode: t.mode,
       };
     });
   });
@@ -45,6 +45,20 @@ export function registerTerminals(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     if (!db.prepare('select 1 from terminals where id=? and active=1').get(id)) return reply.code(404).send({ error: 'Terminal not found' });
     return { pairingCode: newCode(id) };
+  });
+
+  app.patch('/terminals/:id', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { name?: string; place?: string; mode?: string };
+    if (!db.prepare('select 1 from terminals where id=? and active=1').get(id)) return reply.code(404).send({ error: 'Terminal not found' });
+    if (b.mode !== undefined && !['atm', 'presence'].includes(b.mode)) return reply.code(400).send({ error: 'mode must be atm or presence' });
+    if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'Give the terminal a name' });
+    const set: string[] = []; const vals: unknown[] = [];
+    if (b.name !== undefined) { set.push('name=?'); vals.push(b.name.trim()); }
+    if (b.place !== undefined) { set.push('place=?'); vals.push(b.place); }
+    if (b.mode !== undefined) { set.push('mode=?'); vals.push(b.mode); }
+    if (set.length) db.prepare(`update terminals set ${set.join(',')} where id=?`).run(...vals, id);
+    return db.prepare('select id,name,place,mode from terminals where id=?').get(id);
   });
 
   app.delete('/terminals/:id', { preHandler: app.requireAdmin }, async (req, reply) => {
