@@ -23,7 +23,7 @@ class PontApi(
     private val session: SessionStore,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).writeTimeout(10, TimeUnit.SECONDS).build(),
-) : HistoryApi, PresetsApi {
+) : HistoryApi, PresetsApi, PresenceApi {
     private val json = Json { ignoreUnknownKeys = true }
     private class Raw(val status: Int, val body: String)
 
@@ -85,6 +85,29 @@ class PontApi(
     suspend fun suggestCard(cardUid: String): Result<Unit> =
         call("POST", "/card-suggestions", buildJsonObject { put("cardUid", cardUid) }) { }
 
+    /** Which mode the server has set for this phone: `atm` or `presence`. */
+    suspend fun config(): Result<TerminalConfig> = call("GET", "/terminal/config") { json.decodeFromString<TerminalConfig>(it) }
+
+    /** A tap on a check-in terminal: signs the card in or out. */
+    override suspend fun presenceTap(uid: String, key: String): PresenceOutcome {
+        val body = buildJsonObject { put("cardUid", uid); put("idempotencyKey", key) }
+        val r = try { raw("POST", "/presence/tap", body) } catch (e: IOException) { return PresenceOutcome.NoConnection }
+        if (r.status == 401) unpair()
+        val obj = runCatching { json.parseToJsonElement(r.body).jsonObject }.getOrNull()
+        val code = obj?.get("code")?.jsonPrimitive?.contentOrNull
+        return when {
+            r.status == 200 -> runCatching { PresenceOutcome.Done(json.decodeFromString<PresenceResult>(r.body)) }
+                .getOrElse { PresenceOutcome.Failed("The server sent an answer the app can't read.") }
+            r.status == 404 && code == "unknown_card" -> PresenceOutcome.UnknownCard
+            r.status == 403 && code == "card_blocked" -> {
+                val card = obj!!["card"]?.jsonObject
+                PresenceOutcome.Blocked(card?.get("name")?.jsonPrimitive?.contentOrNull.orEmpty(), card?.get("photoUrl")?.jsonPrimitive?.contentOrNull.orEmpty())
+            }
+            r.status == 409 && code == "wrong_mode" -> PresenceOutcome.WrongMode
+            else -> PresenceOutcome.Failed(errorOf(r).message ?: "Something went wrong.")
+        }
+    }
+
     override suspend fun history(): Result<List<Tx>> =
         call("GET", "/transactions?limit=100") { json.decodeFromString<List<Tx>>(it) }
 
@@ -108,5 +131,5 @@ class PontApi(
     }
 
     /** Forget this phone's pairing. An admin has to create a new pairing code to use it again. */
-    fun unpair() { session.terminalToken = null; session.terminalName = null }
+    fun unpair() { session.terminalToken = null; session.terminalName = null; session.mode = "atm" }
 }
