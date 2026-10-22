@@ -19,7 +19,7 @@ class ApiTest {
         server = MockWebServer().also { it.start() }
         session = InMemorySessionStore().apply {
             baseUrl = server.url("/").toString().trimEnd('/')
-            terminalToken = "term-tok"; operatorToken = "op-tok"
+            terminalToken = "term-tok"; terminalName = "Bar 2"
         }
         api = PontApi(session)
     }
@@ -41,7 +41,7 @@ class ApiTest {
         assertEquals(1043L, r.tx.id)
         val req = server.takeRequest()
         assertEquals("/charges", req.path)
-        assertEquals("Bearer op-tok", req.getHeader("Authorization"))
+        assertEquals("Bearer term-tok", req.getHeader("Authorization"))
         assertTrue(req.body.readUtf8().let { "\"cardUid\":\"04:A2:3B:1C\"" in it && "\"amount\":8" in it && "\"idempotencyKey\":\"key-1\"" in it })
     }
 
@@ -66,28 +66,28 @@ class ApiTest {
         assertEquals(ChargeOutcome.NoConnection, api.charge("04:A2:3B:1C", 8, "k"))
     }
 
-    @Test fun a401ClearsTheOperatorToken() = runBlocking {
-        server.enqueue(json(401, """{"error":"Sign in again"}"""))
+    @Test fun aRevokedPhoneIsUnpairedOnTheNextRequest() = runBlocking {
+        server.enqueue(json(401, """{"error":"This phone was revoked"}"""))
         val r = api.charge("04:A2:3B:1C", 8, "k")
         assertTrue(r is ChargeOutcome.Failed)
-        assertNull(session.operatorToken)
-        assertEquals("term-tok", session.terminalToken)
+        assertNull(session.terminalToken)
     }
 
-    @Test fun loginSendsTheTerminalTokenAndStoresTheSession() = runBlocking {
-        server.enqueue(json(200, """{"token":"new-op","user":{"id":"u1","name":"Eszter","role":"operator"}}"""))
-        session.operatorToken = null
-        val r = api.login("eszter@pont.example", "pw")
-        assertEquals("Eszter", r.getOrThrow().name)
-        assertEquals("new-op", session.operatorToken); assertEquals("Eszter", session.operatorName)
-        val body = server.takeRequest().body.readUtf8()
-        assertTrue("\"terminalToken\":\"term-tok\"" in body && "\"email\":\"eszter@pont.example\"" in body)
+    @Test fun aRejectedHistoryRequestAlsoUnpairs() = runBlocking {
+        server.enqueue(json(401, """{"error":"This phone was revoked"}"""))
+        assertTrue(api.history().isFailure)
+        assertNull(session.terminalToken)
     }
 
-    @Test fun wrongPasswordIsAFailureWithTheServerMessage() = runBlocking {
-        server.enqueue(json(401, """{"error":"Wrong email or password"}"""))
-        session.operatorToken = null
-        assertEquals("Wrong email or password", api.login("a@b.c", "x").exceptionOrNull()?.message)
+    @Test fun unpairForgetsTheTerminal() {
+        api.unpair()
+        assertNull(session.terminalToken); assertNull(session.terminalName)
+    }
+
+    @Test fun pairingSendsNoCredentials() = runBlocking {
+        server.enqueue(json(200, """{"terminalToken":"tt2","terminal":{"id":"t2","name":"Entrance"}}"""))
+        assertTrue(api.pair("123456", "Redmi", "0.1").isSuccess)
+        assertNull(server.takeRequest().getHeader("Authorization"))
     }
 
     @Test fun pairStoresTheTerminalTokenAndName() = runBlocking {

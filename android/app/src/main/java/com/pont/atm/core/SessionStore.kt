@@ -6,16 +6,12 @@ interface SessionStore {
     var baseUrl: String
     var terminalToken: String?
     var terminalName: String?
-    var operatorToken: String?
-    var operatorName: String?
 }
 
 class InMemorySessionStore : SessionStore {
     override var baseUrl = ""
     override var terminalToken: String? = null
     override var terminalName: String? = null
-    override var operatorToken: String? = null
-    override var operatorName: String? = null
 }
 
 class PrefsSessionStore(context: Context, defaultBaseUrl: String) : SessionStore {
@@ -31,6 +27,4 @@ class PrefsSessionStore(context: Context, defaultBaseUrl: String) : SessionStore
         set(_) = Unit
     override var terminalToken: String? get() = str("terminalToken"); set(v) = put("terminalToken", v)
     override var terminalName: String? get() = str("terminalName"); set(v) = put("terminalName", v)
-    override var operatorToken: String? get() = str("operatorToken"); set(v) = put("operatorToken", v)
-    override var operatorName: String? get() = str("operatorName"); set(v) = put("operatorName", v)
 }

@@ -50,17 +50,14 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
 
     var screen by remember {
         mutableStateOf<Screen>(
-            when {
-                session.terminalToken == null -> Screen.Pair
-                session.operatorToken == null -> Screen.Login
-                else -> Screen.Charge
-            },
+            if (session.terminalToken == null) Screen.Pair else Screen.Charge,
         )
     }
     val flowState by flow.state.collectAsState()
     val pad = remember { NumpadState() }
     var online by remember { mutableStateOf(true) }
     var menu by remember { mutableStateOf(false) }
+    var confirmUnpair by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
@@ -71,7 +68,8 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
 
     fun noteResult(r: Result<*>) {
         r.onSuccess { online = true }.onFailure { online = (it as? ApiException)?.code != "no_connection" }
-        if (session.operatorToken == null && screen != Screen.Pair && screen != Screen.Login) { flow.reset(); screen = Screen.Login }
+        // The server stopped accepting this phone (revoked in admin): back to pairing.
+        if (session.terminalToken == null && screen != Screen.Pair) { flow.reset(); authError = null; screen = Screen.Pair }
     }
 
     // A short minimum "processing" time so the progress bar is visible, then the POS beep with the result.
@@ -102,7 +100,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
 
     LaunchedEffect(screen) {
         when (screen) {
-            Screen.Charge -> if (session.operatorToken != null) noteResult(graph.presets.load())
+            Screen.Charge -> if (session.terminalToken != null) noteResult(graph.presets.load())
             Screen.History -> noteResult(graph.history.load())
             else -> {}
         }
@@ -138,25 +136,15 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
                                 scope.launch {
                                     busy = true; authError = null
                                     api.pair(code, Build.MODEL ?: "Android", BuildConfig.VERSION_NAME)
-                                        .onSuccess { screen = Screen.Login }.onFailure { authError = it.message }
+                                        .onSuccess { screen = Screen.Charge }.onFailure { authError = it.message }
                                     busy = false
                                 }
                             }
-                            Screen.Login -> LoginScreen(session.terminalName.orEmpty(), busy, authError,
-                                onLogin = { email, password ->
-                                    scope.launch {
-                                        busy = true; authError = null
-                                        api.login(email, password).onSuccess { screen = Screen.Charge }.onFailure { authError = it.message }
-                                        busy = false
-                                    }
-                                },
-                                onRepair = { session.terminalToken = null; api.signOut(); authError = null; screen = Screen.Pair },
-                            )
                             Screen.History -> HistoryScreen(graph.history, api, session.terminalName.orEmpty()) { noteResult(Result.success(Unit)) }
                             Screen.Presets -> PresetsScreen(graph.presets, session.terminalName.orEmpty())
                             else -> ChargeScreen(
                                 pad = pad, presets = graph.presets.values, instant = graph.presets.instant,
-                                terminal = session.terminalName.orEmpty(), operator = session.operatorName.orEmpty(), online = online,
+                                terminal = session.terminalName.orEmpty(), online = online,
                                 onPreset = { p -> if (graph.presets.instant) flow.start(p) else pad.set(p) },
                                 onCharge = { if (pad.amount > 0) flow.start(pad.amount) },
                                 onMenu = { menu = true },
@@ -167,17 +155,23 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
                 if (showTabs) TabBar(selected = screen, onSelect = { screen = it })
             }
 
-            if (menu) BottomSheet(onDismiss = { menu = false }) {
-                Text(session.operatorName.orEmpty(), style = PontType.display(22))
-                Text("Operator · Terminal ${session.terminalName.orEmpty()} · app ${BuildConfig.VERSION_NAME}", color = PontColors.Ink2)
-                Text(session.baseUrl, color = PontColors.Ink3, fontSize = 12.sp)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Beep on result", fontWeight = FontWeight.Bold)
-                    PontSwitch(sound, "Beep on result") { sound = it; graph.beeper.enabled = it }
+            if (menu) BottomSheet(onDismiss = { menu = false; confirmUnpair = false }) {
+                if (confirmUnpair) {
+                    Text("Unpair this phone?", style = PontType.display(22))
+                    Text("It stops being the ${session.terminalName.orEmpty()} terminal. An admin has to create a new pairing code to use it again.", color = PontColors.Ink2)
+                    SheetButtons("Keep", { confirmUnpair = false }, "Unpair", {
+                        menu = false; confirmUnpair = false; api.unpair(); noteResult(Result.success(Unit))
+                    })
+                } else {
+                    Text(session.terminalName.orEmpty(), style = PontType.display(22))
+                    Text("Terminal · app ${BuildConfig.VERSION_NAME}", color = PontColors.Ink2)
+                    Text(session.baseUrl, color = PontColors.Ink3, fontSize = 12.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Beep on result", fontWeight = FontWeight.Bold)
+                        PontSwitch(sound, "Beep on result") { sound = it; graph.beeper.enabled = it }
+                    }
+                    SheetButtons("Close", { menu = false }, "Unpair…", { confirmUnpair = true })
                 }
-                SheetButtons("Close", { menu = false }, "Sign out", {
-                    menu = false; api.signOut(); flow.reset(); pad.clear(); authError = null; screen = Screen.Login
-                })
             }
             toast?.let { Toast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = if (showTabs) 84.dp else 24.dp).navigationBarsPadding(), dark = dark) }
         }

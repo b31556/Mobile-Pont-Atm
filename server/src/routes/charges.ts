@@ -18,7 +18,7 @@ export function registerCharges(app: FastifyInstance) {
   const txJson = (t: TxRow) => ({ id: t.id, amount: t.amount, createdAt: t.created_at, terminal: terminalName(t.terminal_id) });
   const cardInfo = (c: CardRow, balanceBefore: number) => ({ id: c.id, name: c.name, photoUrl: cardJson(c).photoUrl, balanceBefore, balance: c.balance });
 
-  const charge = db.transaction((terminalId: string, operatorId: string, uid: string, amount: number, key: string) => {
+  const charge = db.transaction((terminalId: string, operatorId: string | null, uid: string, amount: number, key: string) => {
     const prior = db.prepare('select * from transactions where terminal_id=? and idempotency_key=?').get(terminalId, key) as TxRow | undefined;
     if (prior) {
       const card = db.prepare('select * from cards where id=?').get(prior.card_id) as CardRow;
@@ -36,7 +36,7 @@ export function registerCharges(app: FastifyInstance) {
     return { tx: db.prepare('select * from transactions where id=?').get(id) as TxRow, card: { ...card, balance: after, last_used: now } as CardRow, before: card.balance };
   });
 
-  const storno = db.transaction((id: number, user: { id: string; role: string; terminalId?: string }) => {
+  const storno = db.transaction((id: number, user: { id: string; role: string; terminalId?: string; viaTerminal?: boolean }) => {
     const orig = db.prepare('select * from transactions where id=?').get(id) as TxRow | undefined;
     if (!orig) throw new Refusal(404, 'not_found', 'Transaction not found');
     if (user.role === 'operator' && orig.terminal_id !== user.terminalId) throw new Refusal(403, 'other_terminal', 'That charge was made on another terminal');
@@ -48,7 +48,7 @@ export function registerCharges(app: FastifyInstance) {
     db.prepare('update cards set balance=? where id=?').run(after, card.id);
     db.prepare("update transactions set status='stornoed' where id=?").run(id);
     const rid = db.prepare(`insert into transactions(card_id,amount,type,status,ref,terminal_id,operator_id,created_at,balance_after)
-      values(?,?,'storno','ok',?,?,?,?,?)`).run(card.id, -orig.amount, id, user.terminalId ?? orig.terminal_id, user.id, new Date().toISOString(), after).lastInsertRowid;
+      values(?,?,'storno','ok',?,?,?,?,?)`).run(card.id, -orig.amount, id, user.terminalId ?? orig.terminal_id, user.viaTerminal ? null : user.id, new Date().toISOString(), after).lastInsertRowid;
     return { tx: db.prepare('select * from transactions where id=?').get(rid) as TxRow, card: { ...card, balance: after } as CardRow };
   });
 
@@ -67,7 +67,7 @@ export function registerCharges(app: FastifyInstance) {
     }
     const uid = normalizeUid(b.cardUid ?? '');
     if (!uid) return reply.code(404).send({ error: 'Card not registered', code: 'unknown_card' });
-    const r = charge(req.user.terminalId!, req.user.id, uid, b.amount, b.idempotencyKey);
+    const r = charge(req.user.terminalId!, req.user.viaTerminal ? null : req.user.id, uid, b.amount, b.idempotencyKey);
     return { transaction: txJson(r.tx), card: cardInfo(r.card, r.before) };
   });
 
@@ -80,7 +80,7 @@ export function registerCharges(app: FastifyInstance) {
       ${own ? 'where t.terminal_id=?' : ''} order by t.id desc limit ?`).all(...(own ? [req.user.terminalId] : []), limit) as (TxRow & { card_name: string; operator_name: string | null })[];
     return rows.map(t => ({
       id: t.id, type: t.type, amount: t.amount, status: t.status, ref: t.ref, createdAt: t.created_at,
-      terminal: terminalName(t.terminal_id), operator: t.operator_name ?? '',
+      terminal: terminalName(t.terminal_id), operator: t.operator_name ?? terminalName(t.terminal_id),
       card: { id: t.card_id, name: t.card_name, photoUrl: `/cards/${t.card_id}/photo` },
     }));
   });

@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun ChargeScreen(
     pad: NumpadState, presets: List<Int>, instant: Boolean,
-    terminal: String, operator: String, online: Boolean,
+    terminal: String, online: Boolean,
     onPreset: (Int) -> Unit, onCharge: () -> Unit, onMenu: () -> Unit,
 ) {
     val amount = pad.amount
@@ -43,7 +43,7 @@ fun ChargeScreen(
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Box(Modifier.size(8.dp).background(if (online) PontColors.Green else PontColors.Red, CircleShape))
-                Text("$terminal · $operator", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Text(terminal, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             }
             Text(if (online) "Online" else "No connection", color = if (online) PontColors.GreenDark else PontColors.Red, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
         }

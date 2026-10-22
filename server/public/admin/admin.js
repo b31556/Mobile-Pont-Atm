@@ -108,15 +108,15 @@ function cardsPane() {
 
 function terminalsPane() {
   const list = state.data.terminals || [];
-  return `<div class="ph"><div><h1>Terminals</h1><p>Phones paired to a terminal name. Operators sign in on them.</p></div><span class="sp"></span>
+  return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. Charges and stornos are recorded under its name.</p></div><span class="sp"></span>
     <button class="btn green" data-act="newterm">Pair a phone</button></div>
-    <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Operator</th><th>Phone</th><th>App</th><th>Given today</th><th></th></tr></thead><tbody>
+    <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Phone</th><th>App</th><th>Given today</th><th></th></tr></thead><tbody>
     ${list.length ? list.map(t => `<tr><td><b>${esc(t.name)}</b><div style="font-size:12px;color:var(--ink-3)">${esc(t.place)}</div></td>
       <td>${t.online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline</span>'}<div style="font-size:12px;color:var(--ink-3)">${t.lastSeen ? esc(when(t.lastSeen)) : 'Never seen'}</div></td>
-      <td>${t.operator ? esc(t.operator) : '<span style="color:var(--ink-3)">Nobody yet</span>'}</td><td style="color:var(--ink-2)">${esc(t.device || '—')}</td>
+      <td style="color:var(--ink-2)">${esc(t.device || '—')}</td>
       <td class="mono">${esc(t.appVersion || '—')}</td><td class="num">${t.givenToday}</td>
       <td><div class="rowbtns"><button class="btn line sm" data-act="newcode" data-id="${t.id}">New code</button><button class="btn line sm" data-act="revoke" data-id="${t.id}" data-name="${esc(t.name)}">Revoke</button></div></td></tr>`).join('')
-      : '<tr><td colspan="7" class="empty">No terminals yet. Pair the first phone.</td></tr>'}
+      : '<tr><td colspan="6" class="empty">No terminals yet. Pair the first phone.</td></tr>'}
     </tbody></table></div>`;
 }
 
@@ -135,9 +135,9 @@ function txnsPane() {
 
 function staffPane() {
   const list = state.data.staff || [];
-  return `<div class="ph"><div><h1>Staff</h1><p>Operators use the app. Admins use this site.</p></div><span class="sp"></span><button class="btn green" data-act="newstaff">Add staff</button></div>
+  return `<div class="ph"><div><h1>Staff</h1><p>People who can sign in to this admin site. Phones don’t need a person to sign in.</p></div><span class="sp"></span><button class="btn green" data-act="newstaff">Add admin</button></div>
     <div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>
-    ${list.map(s => `<tr><td><b>${esc(s.name)}</b></td><td class="mono">${esc(s.email)}</td><td>${s.role === 'admin' ? 'Admin' : 'Operator'}</td>
+    ${list.map(s => `<tr><td><b>${esc(s.name)}</b></td><td class="mono">${esc(s.email)}</td><td>${s.role === 'admin' ? 'Admin' : 'Operator (old sign-in)'}</td>
       <td>${s.active ? '<span class="pill ok">Active</span>' : '<span class="pill mute">Switched off</span>'}</td>
       <td><div class="rowbtns"><button class="btn line sm" data-act="resetpw" data-id="${s.id}">Reset password</button><button class="btn line sm" data-act="staffactive" data-id="${s.id}" data-on="${s.active ? 1 : 0}">${s.active ? 'Switch off' : 'Switch on'}</button></div></td></tr>`).join('')}
     </tbody></table></div>`;
@@ -181,10 +181,9 @@ function modalView() {
     <h2>Revoke ${esc(m.name)}?</h2><p style="color:var(--ink-2)">The phone is signed out and can’t sign in again until it is paired with a new code.</p>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn red" style="flex:1;justify-content:center" data-act="dorevoke" data-id="${m.id}">Revoke</button></div></div></div>`;
   if (m.kind === 'newstaff') return `<div class="modal-scrim" data-act="closemodal"><form class="modal" id="staffform" data-stop>
-    <h2>Add staff</h2>
+    <h2>Add admin</h2>
     <label class="field" style="text-align:left">Name<input name="name" required></label>
     <label class="field" style="text-align:left">Email<input name="email" type="email" required></label>
-    <label class="field" style="text-align:left">Role<select name="role"><option value="operator">Operator (app)</option><option value="admin">Admin (this site)</option></select></label>
     <p class="err" id="s-err" role="alert"></p>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button><button class="btn green" style="flex:1;justify-content:center">Add</button></div></form></div>`;
   if (m.kind === 'secret') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
@@ -225,8 +224,8 @@ root.addEventListener('submit', async e => {
   } else if (f.id === 'staffform') {
     const fd = new FormData(f), password = tempPassword();
     try {
-      await api('POST', '/staff', { name: fd.get('name'), email: fd.get('email'), role: fd.get('role'), password });
-      state.modal = { kind: 'secret', title: 'Staff member added', who: fd.get('name'), password }; await refresh();
+      await api('POST', '/staff', { name: fd.get('name'), email: fd.get('email'), role: 'admin', password });
+      state.modal = { kind: 'secret', title: 'Admin added', who: fd.get('name'), password }; await refresh();
     } catch (err) { $('#s-err').textContent = err.message; }
   }
 });

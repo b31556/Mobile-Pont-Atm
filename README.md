@@ -41,10 +41,9 @@ Address for the app and admin site: `http://<machine>.<tailnet>.ts.net:3000` (th
 
 ## Set up a terminal
 
-1. In the admin site: **Staff**, add an operator (the temporary password is shown once).
-2. **Terminals**, **Pair a phone**: name it (like "Bar 2") and note the 6-digit code (valid 10 minutes).
-3. **Cards**, **Add card**: holder name, photo, card UID, starting points. To find a card's UID, tap it on a terminal: an unregistered card shows its UID on the phone.
-4. On the phone: enter the pairing code, then sign in with the operator's email and password. The server address is fixed in the app at build time (`DEFAULT_BASE_URL` in `android/app/build.gradle.kts`); change it there and rebuild to point at another server.
+1. In the admin site: **Terminals**, **Pair a phone**: name it (like "Bar 2") and note the 6-digit code (valid 10 minutes).
+2. **Cards**, **Add card**: holder name, photo, card UID, starting points. To find a card's UID, tap it on a terminal: an unregistered card shows its UID on the phone.
+3. On the phone: enter the pairing code. That is all: there is no sign-in, and the phone goes straight to the keypad. Charges are recorded under the terminal's name. To retire or lose a phone, revoke its terminal in the admin site, or use **Unpair** in the phone's terminal menu. The server address is fixed in the app at build time (`DEFAULT_BASE_URL` in `android/app/build.gradle.kts`); change it there and rebuild to point at another server.
 
 ## Build the app
 
@@ -72,4 +71,4 @@ The app reads the card's UID (4, 7 or 10 bytes) and sends it to the server, whic
 - Storno reverses one charge in full and is refused if the card has already spent those points.
 - Blocked cards and unregistered tags are refused with a clear message and change nothing.
 - No offline mode. If the connection drops during a charge, the phone says it couldn't confirm: the card may already have been credited, so the operator taps again (the server answers once) or checks History before charging again.
-- Staff sessions last 12 hours and end at once when a password is reset or an account is switched off. Login and pairing lock out for 15 minutes after 10 wrong attempts.
+- A paired phone stays paired until it is revoked in admin or unpaired on the phone. Anyone holding an unlocked paired phone can charge points, so revoke a lost phone straight away. Admin sessions last 12 hours and end at once when a password is reset or an account is switched off. Admin login and pairing lock out for 15 minutes after 10 wrong attempts.

@@ -29,11 +29,11 @@ class PontApi(
 
     fun photoUrl(path: String) = session.baseUrl.trimEnd('/') + path
 
-    private suspend fun raw(method: String, path: String, body: JsonObject? = null, operator: Boolean = true): Raw = withContext(Dispatchers.IO) {
+    private suspend fun raw(method: String, path: String, body: JsonObject? = null, authorized: Boolean = true): Raw = withContext(Dispatchers.IO) {
         if (session.baseUrl.isBlank()) throw IOException("No server address")
         val req = Request.Builder().url(photoUrl(path))
             .method(method, if (body == null && method == "GET") null else (body?.toString() ?: "{}").toRequestBody("application/json".toMediaType()))
-        if (operator) session.operatorToken?.let { req.header("Authorization", "Bearer $it") }
+        if (authorized) session.terminalToken?.let { req.header("Authorization", "Bearer $it") }
         client.newCall(req.build()).execute().use { Raw(it.code, it.body?.string().orEmpty()) }
     }
 
@@ -43,37 +43,26 @@ class PontApi(
         return ApiException(message, obj?.get("code")?.jsonPrimitive?.contentOrNull, r.status)
     }
 
-    private suspend fun <T> call(method: String, path: String, body: JsonObject? = null, operator: Boolean = true, parse: (String) -> T): Result<T> =
+    private suspend fun <T> call(method: String, path: String, body: JsonObject? = null, authorized: Boolean = true, parse: (String) -> T): Result<T> =
         try {
-            val r = raw(method, path, body, operator)
-            if (r.status == 401 && operator) session.operatorToken = null
+            val r = raw(method, path, body, authorized)
+            if (r.status == 401 && authorized) unpair() // the server no longer accepts this phone (revoked)
             if (r.status in 200..299) Result.success(parse(r.body)) else Result.failure(errorOf(r))
         } catch (e: IOException) {
             Result.failure(ApiException("No connection to the server.", "no_connection"))
         }
 
     suspend fun pair(code: String, device: String, appVersion: String): Result<Unit> =
-        call("POST", "/pair", buildJsonObject { put("code", code); put("device", device); put("appVersion", appVersion) }, operator = false) { body ->
+        call("POST", "/pair", buildJsonObject { put("code", code); put("device", device); put("appVersion", appVersion) }, authorized = false) { body ->
             val o = json.parseToJsonElement(body).jsonObject
             session.terminalToken = o["terminalToken"]!!.jsonPrimitive.content
             session.terminalName = o["terminal"]!!.jsonObject["name"]!!.jsonPrimitive.content
         }
 
-    suspend fun login(email: String, password: String): Result<User> =
-        call("POST", "/auth/login", buildJsonObject {
-            put("email", email); put("password", password); session.terminalToken?.let { put("terminalToken", it) }
-        }, operator = false) { body ->
-            val o = json.parseToJsonElement(body).jsonObject
-            val user = json.decodeFromJsonElement(User.serializer(), o["user"]!!)
-            session.operatorToken = o["token"]!!.jsonPrimitive.content
-            session.operatorName = user.name
-            user
-        }
-
     suspend fun charge(cardUid: String, amount: Int, idempotencyKey: String): ChargeOutcome {
         val body = buildJsonObject { put("cardUid", cardUid); put("amount", amount); put("idempotencyKey", idempotencyKey) }
         val r = try { raw("POST", "/charges", body) } catch (e: IOException) { return ChargeOutcome.NoConnection }
-        if (r.status == 401) session.operatorToken = null
+        if (r.status == 401) unpair()
         val obj = runCatching { json.parseToJsonElement(r.body).jsonObject }.getOrNull()
         val code = obj?.get("code")?.jsonPrimitive?.contentOrNull
         return when {
@@ -106,13 +95,14 @@ class PontApi(
             put("instantPreset", instantPreset)
         }) { json.decodeFromString<PresetConfig>(it) }
 
-    /** Photo bytes for a holder, fetched with the operator's token (photos are not public). */
+    /** Photo bytes for a holder, fetched with the phone's token (photos are not public). */
     suspend fun photoBytes(path: String): ByteArray? = withContext(Dispatchers.IO) {
         try {
-            val req = Request.Builder().url(photoUrl(path)).apply { session.operatorToken?.let { header("Authorization", "Bearer $it") } }.build()
+            val req = Request.Builder().url(photoUrl(path)).apply { session.terminalToken?.let { header("Authorization", "Bearer $it") } }.build()
             client.newCall(req).execute().use { if (it.isSuccessful) it.body?.bytes() else null }
         } catch (e: IOException) { null }
     }
 
-    fun signOut() { session.operatorToken = null; session.operatorName = null }
+    /** Forget this phone's pairing. An admin has to create a new pairing code to use it again. */
+    fun unpair() { session.terminalToken = null; session.terminalName = null }
 }

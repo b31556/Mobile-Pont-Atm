@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
@@ -61,28 +60,10 @@ fun PairScreen(busy: Boolean, error: String?, onPair: (code: String) -> Unit) {
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Logo(); Spacer(Modifier.height(12.dp))
         Text("Pair this phone", style = PontType.display(32))
-        Text("Ask an admin for a pairing code. They create it under Terminals on the admin site.", color = PontColors.Ink2)
+        Text("Ask an admin for a pairing code. They create it under Terminals on the admin site. There is nothing to sign in to after that.", color = PontColors.Ink2)
         Field(code, { code = it.filter(Char::isDigit).take(6) }, "6-digit code", keyboard = KeyboardType.NumberPassword)
         if (error != null) Text(error, color = PontColors.Red, fontWeight = FontWeight.SemiBold)
         GoButton(if (busy) "Pairing…" else "Pair this phone", enabled = !busy && code.length == 6) { onPair(code) }
     }
 }
 
-@Composable
-fun LoginScreen(terminalName: String, busy: Boolean, error: String?, onLogin: (email: String, password: String) -> Unit, onRepair: () -> Unit) {
-    var email by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Logo(); Spacer(Modifier.height(12.dp))
-        Text("Sign in", style = PontType.display(32))
-        Text("This phone is paired as $terminalName.", color = PontColors.Ink2)
-        Field(email, { email = it.trim() }, "Email", keyboard = KeyboardType.Email)
-        Field(password, { password = it }, "Password", keyboard = KeyboardType.Password, secret = true)
-        if (error != null) Text(error, color = PontColors.Red, fontWeight = FontWeight.SemiBold)
-        GoButton(if (busy) "Signing in…" else "Sign in", enabled = !busy && email.isNotBlank() && password.isNotEmpty()) { onLogin(email, password) }
-        Spacer(Modifier.weight(1f))
-        Text("Pair with a different terminal", color = PontColors.Ink3, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().clickableText(onRepair), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-    }
-}
-
-private fun Modifier.clickableText(onClick: () -> Unit): Modifier = clickable(onClick = onClick).padding(vertical = 8.dp)

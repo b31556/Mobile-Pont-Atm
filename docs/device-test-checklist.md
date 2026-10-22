@@ -5,9 +5,9 @@ Run this on a real NFC phone with a real MIFARE Classic 1K card before using the
 Phone model / Android version: ______________   Card(s): ______________   App build: ______________
 
 ## Setup
-- [ ] Server running, admin signed in, one operator, one terminal paired (code accepted once, a second use is refused)
+- [ ] Server running, admin signed in, one terminal paired (code accepted once, a second use is refused)
 - [ ] Card added in admin with a photo and 10 starting points
-- [ ] Phone paired, operator signed in, presets shown on the keypad
+- [ ] Phone paired: after entering the code it goes straight to the keypad with no sign-in, and the presets are shown
 
 ## Reading
 - [ ] Tap the card at the "Hold the card" screen: UID is read within about a second, no double charge
@@ -43,9 +43,9 @@ Phone model / Android version: ______________   Card(s): ______________   App bu
 - [ ] Spend/reduce the card below the charged amount in admin, then storno: refused with "Card has fewer points than this storno."
 
 ## Sessions and admin
-- [ ] Switch the operator off in admin: the phone is sent to sign-in on the next action
-- [ ] Revoke the terminal in admin: the phone can no longer sign in
-- [ ] Sign out, sign in as a different operator on the same terminal: presets are the same
+- [ ] Revoke the terminal in admin: the phone's next action sends it back to the pairing screen, and the old code can't be reused
+- [ ] Unpair from the terminal menu (it asks first): the phone returns to pairing; a new code from admin pairs it again
+- [ ] Close and reopen the app, and update it over the old APK: it stays paired, no sign-in
 
 ## Results
 
