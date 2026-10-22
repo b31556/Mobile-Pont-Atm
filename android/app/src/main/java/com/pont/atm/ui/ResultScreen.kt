@@ -95,10 +95,10 @@ private fun SuccessResult(amount: Int, o: ChargeOutcome.Success, api: PontApi, t
                 if (stornoed == null) {
                     // Straight back to waiting for a card, same amount: no trip through the keypad.
                     GoButton("One more like this · $amount ${if (amount == 1) "pt" else "pts"}", onClick = onSame)
-                    GhostButton("Next customer", PontColors.Ink, onClick = onNext)
+                    GhostButton("Done", PontColors.Ink, onClick = onNext)
                     GhostButton("Storno this charge", PontColors.Red) { error = null; asking = true }
                 } else {
-                    GoButton("Next customer", onClick = onNext)
+                    GoButton("Done", onClick = onNext)
                 }
             }
         }

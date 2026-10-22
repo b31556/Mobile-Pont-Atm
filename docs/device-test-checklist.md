@@ -22,7 +22,7 @@ Phone model / Android version: ______________   Card(s): ______________   App bu
 - [ ] Preset: one tap on "8" goes straight to the card screen, then tap: charged
 - [ ] With "Tap once, then card" off, a preset only fills the amount
 - [ ] Progress bar is visible for about a second even when the server answers instantly
-- [ ] Sounds are like a card terminal and not cut off: one short beep the moment the card is read, one longer beep when approved, three lower beeps when refused
+- [ ] Sounds are clean and not cut off: a soft rising pair when approved, three lower beeps when refused
 - [ ] Card read to result takes about half a second plus the server time
 - [ ] Beep off in the terminal menu: silent on success and refusal
 
