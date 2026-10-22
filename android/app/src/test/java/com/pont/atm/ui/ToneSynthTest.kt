@@ -55,15 +55,11 @@ class ToneSynthTest {
     private fun beeps(l: List<ToneSynth.Segment>) = l.filter { it.hz > 0 }
     private fun total(l: List<ToneSynth.Segment>) = l.sumOf { it.ms }
 
-    @Test fun aReadIsOneShortBeep() {
-        assertEquals(1, beeps(Beeps.read).size)
-        assertTrue("read ${total(Beeps.read)} ms", total(Beeps.read) in 50..150)
-    }
-
-    @Test fun anApprovalIsOneLongerBeep() {
-        assertEquals(1, beeps(Beeps.success).size)
-        assertTrue("success ${total(Beeps.success)} ms", total(Beeps.success) in 250..500)
-        assertTrue("longer than the read beep", total(Beeps.success) > total(Beeps.read))
+    @Test fun anApprovalIsASoftRisingPair() {
+        assertEquals(2, beeps(Beeps.success).size)
+        assertTrue("success ${total(Beeps.success)} ms", total(Beeps.success) in 150..500)
+        assertTrue("rises", beeps(Beeps.success).last().hz > beeps(Beeps.success).first().hz)
+        assertTrue("soft: plain sine", beeps(Beeps.success).all { it.wave == ToneSynth.Wave.Sine })
     }
 
     @Test fun aRefusalIsThreeShortLowerBeeps() {

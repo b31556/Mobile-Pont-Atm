@@ -5,16 +5,14 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * The sounds of a card terminal, made with the buzzer waveform of a real one:
- * one short beep when the card is read, one longer beep when the payment is approved,
- * and three lower beeps when it is refused.
+ * The sounds the terminal makes. An approval is the soft rising pair; a refusal is three lower beeps
+ * with the buzzer waveform of a card terminal.
  */
 object Beeps {
     private fun buzz(hz: Int, ms: Int) = ToneSynth.Segment(hz, ms, gain = 0.5f, wave = ToneSynth.Wave.Buzzer)
     private fun gap(ms: Int) = ToneSynth.Segment(0, ms)
 
-    val read = listOf(buzz(2400, 90))
-    val success = listOf(buzz(2400, 400))
+    val success = listOf(ToneSynth.Segment(1568, 70), ToneSynth.Segment(0, 25), ToneSynth.Segment(2093, 130))
     val refusal = listOf(buzz(1200, 140), gap(90), buzz(1200, 140), gap(90), buzz(1200, 140))
 }
 
