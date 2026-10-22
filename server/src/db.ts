@@ -32,7 +32,7 @@ create table if not exists transactions(
   status text not null default 'ok' check(status in ('ok','stornoed')),
   ref integer references transactions(id),
   terminal_id text, operator_id text,
-  idempotency_key text, created_at text not null
+  idempotency_key text, created_at text not null, balance_after integer not null default 0
 );
 create unique index if not exists tx_idem on transactions(terminal_id, idempotency_key) where idempotency_key is not null;
 create table if not exists balance_adjustments(
