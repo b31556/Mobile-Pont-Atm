@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openDb } from '../src/db.js';
-import { DEFAULT_SETTINGS, computePoints, getSettings, saveSettings, validateSettings, type PresenceSettings } from '../src/presence.js';
+import { DEFAULT_SETTINGS, computePoints, createZone, defaultZone, getZone, listZones, updateZone, validateSettings, type PresenceSettings } from '../src/presence.js';
 
 const s = (over: Partial<PresenceSettings> = {}): PresenceSettings => ({ ...DEFAULT_SETTINGS, ...over });
 const minutes = [5, 12, 17, 18, 30, 50];
@@ -66,14 +66,35 @@ describe('validateSettings', () => {
   });
 });
 
-describe('stored settings', () => {
-  it('start as the defaults', () => expect(getSettings(openDb(':memory:'))).toEqual(DEFAULT_SETTINGS));
-  it('round trip, including empty caps', () => {
+describe('zones storage', () => {
+  it('a new database has one default zone with the default rules', () => {
+    const db = openDb(':memory:');
+    const zones = listZones(db);
+    expect(zones).toHaveLength(1);
+    expect(zones[0]).toMatchObject({ name: 'Main area', settings: DEFAULT_SETTINGS });
+    expect(defaultZone(db).id).toBe(zones[0].id);
+  });
+  it('opening the database again does not add another default zone', () => {
+    const db = openDb(':memory:');
+    expect(listZones(db)).toHaveLength(1);
+  });
+  it('a zone round-trips, including empty caps', () => {
     const db = openDb(':memory:');
     const next = s({ pointsPerBlock: 5, blockMinutes: 10, rounding: 'prorata', maxPointsVisit: 40, maxPoints24h: null, cooldownSeconds: 0 });
-    saveSettings(db, next);
-    expect(getSettings(db)).toEqual(next);
-    saveSettings(db, s());
-    expect(getSettings(db)).toEqual(s());
+    const z = createZone(db, 'Workshop', next);
+    expect(getZone(db, z.id)).toEqual({ id: z.id, name: 'Workshop', settings: next });
+    expect(listZones(db).map(x => x.name)).toEqual(['Main area', 'Workshop']);
+  });
+  it('a zone can be renamed and its rules changed', () => {
+    const db = openDb(':memory:');
+    const z = createZone(db, 'Gym', s());
+    const changed = updateZone(db, z.id, { name: 'Gym floor', settings: s({ maxPoints24h: 50, maxPointsVisit: null }) });
+    expect(changed).toEqual({ id: z.id, name: 'Gym floor', settings: s({ maxPoints24h: 50 }) });
+    expect(updateZone(db, z.id, { name: 'Gym' })!.settings.maxPoints24h).toBe(50);
+  });
+  it('an unknown zone is undefined', () => {
+    const db = openDb(':memory:');
+    expect(getZone(db, 'nope')).toBeUndefined();
+    expect(updateZone(db, 'nope', { name: 'x' })).toBeUndefined();
   });
 });

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Db } from './db.js';
 
 export type Rounding = 'down' | 'up' | 'nearest' | 'prorata';
@@ -63,20 +64,42 @@ export function computePoints(s: PresenceSettings, minutes: number, remaining24h
   return { raw, awarded, cappedBy };
 }
 
-export function getSettings(db: Db): PresenceSettings {
-  const row = db.prepare('select * from presence_settings where id=1').get() as Record<string, unknown> | undefined;
-  if (!row) return { ...DEFAULT_SETTINGS };
+export interface Zone { id: string; name: string; settings: PresenceSettings }
+
+function zoneFromRow(row: Record<string, unknown>): Zone {
   return {
-    pointsPerBlock: row.points_per_block as number, blockMinutes: row.block_minutes as number, rounding: row.rounding as Rounding,
-    minMinutes: row.min_minutes as number, maxPointsVisit: row.max_points_visit as number | null, maxPoints24h: row.max_points_24h as number | null,
-    maxStayHours: row.max_stay_hours as number, cooldownSeconds: row.cooldown_seconds as number,
+    id: row.id as string, name: row.name as string,
+    settings: {
+      pointsPerBlock: row.points_per_block as number, blockMinutes: row.block_minutes as number, rounding: row.rounding as Rounding,
+      minMinutes: row.min_minutes as number, maxPointsVisit: row.max_points_visit as number | null, maxPoints24h: row.max_points_24h as number | null,
+      maxStayHours: row.max_stay_hours as number, cooldownSeconds: row.cooldown_seconds as number,
+    },
   };
 }
 
-export function saveSettings(db: Db, s: PresenceSettings): void {
-  db.prepare(`insert into presence_settings(id,points_per_block,block_minutes,rounding,min_minutes,max_points_visit,max_points_24h,max_stay_hours,cooldown_seconds)
-    values(1,?,?,?,?,?,?,?,?) on conflict(id) do update set points_per_block=excluded.points_per_block, block_minutes=excluded.block_minutes,
-    rounding=excluded.rounding, min_minutes=excluded.min_minutes, max_points_visit=excluded.max_points_visit, max_points_24h=excluded.max_points_24h,
-    max_stay_hours=excluded.max_stay_hours, cooldown_seconds=excluded.cooldown_seconds`)
-    .run(s.pointsPerBlock, s.blockMinutes, s.rounding, s.minMinutes, s.maxPointsVisit, s.maxPoints24h, s.maxStayHours, s.cooldownSeconds);
+export const listZones = (db: Db): Zone[] =>
+  (db.prepare('select * from zones order by created_at, rowid').all() as Record<string, unknown>[]).map(zoneFromRow);
+
+export function getZone(db: Db, id: string): Zone | undefined {
+  const row = db.prepare('select * from zones where id=?').get(id) as Record<string, unknown> | undefined;
+  return row ? zoneFromRow(row) : undefined;
+}
+
+/** The first zone made. Always exists. */
+export const defaultZone = (db: Db): Zone => listZones(db)[0];
+
+export function createZone(db: Db, name: string, s: PresenceSettings): Zone {
+  const id = randomUUID();
+  db.prepare(`insert into zones(id,name,created_at,points_per_block,block_minutes,rounding,min_minutes,max_points_visit,max_points_24h,max_stay_hours,cooldown_seconds)
+    values(?,?,?,?,?,?,?,?,?,?,?)`).run(id, name, new Date().toISOString(), s.pointsPerBlock, s.blockMinutes, s.rounding, s.minMinutes, s.maxPointsVisit, s.maxPoints24h, s.maxStayHours, s.cooldownSeconds);
+  return getZone(db, id)!;
+}
+
+export function updateZone(db: Db, id: string, change: { name?: string; settings?: PresenceSettings }): Zone | undefined {
+  const zone = getZone(db, id);
+  if (!zone) return undefined;
+  const name = change.name ?? zone.name, s = change.settings ?? zone.settings;
+  db.prepare(`update zones set name=?, points_per_block=?, block_minutes=?, rounding=?, min_minutes=?, max_points_visit=?, max_points_24h=?, max_stay_hours=?, cooldown_seconds=? where id=?`)
+    .run(name, s.pointsPerBlock, s.blockMinutes, s.rounding, s.minMinutes, s.maxPointsVisit, s.maxPoints24h, s.maxStayHours, s.cooldownSeconds, id);
+  return getZone(db, id);
 }

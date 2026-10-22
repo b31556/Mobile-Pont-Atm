@@ -75,11 +75,11 @@ export function registerCharges(app: FastifyInstance) {
     const q = (req.query ?? {}) as { limit?: string };
     const limit = Math.min(Math.max(parseInt(q.limit ?? '50', 10) || 50, 1), 200);
     const own = req.user.role === 'operator';
-    const rows = db.prepare(`select t.*, c.name card_name, s.name operator_name from transactions t
-      join cards c on c.id=t.card_id left join staff s on s.id=t.operator_id
-      ${own ? 'where t.terminal_id=?' : ''} order by t.id desc limit ?`).all(...(own ? [req.user.terminalId] : []), limit) as (TxRow & { card_name: string; operator_name: string | null })[];
+    const rows = db.prepare(`select t.*, c.name card_name, s.name operator_name, z.name zone_name from transactions t
+      join cards c on c.id=t.card_id left join staff s on s.id=t.operator_id left join zones z on z.id=t.zone_id
+      ${own ? 'where t.terminal_id=?' : ''} order by t.id desc limit ?`).all(...(own ? [req.user.terminalId] : []), limit) as (TxRow & { card_name: string; operator_name: string | null; zone_name: string | null })[];
     return rows.map(t => ({
-      id: t.id, type: t.type, amount: t.amount, status: t.status, ref: t.ref, createdAt: t.created_at, kind: (t as { kind?: string }).kind ?? 'atm', note: (t as { note?: string | null }).note ?? null,
+      id: t.id, type: t.type, amount: t.amount, status: t.status, ref: t.ref, createdAt: t.created_at, kind: (t as { kind?: string }).kind ?? 'atm', note: (t as { note?: string | null }).note ?? null, zone: t.zone_name,
       terminal: terminalName(t.terminal_id), operator: t.operator_name ?? terminalName(t.terminal_id),
       card: { id: t.card_id, name: t.card_name, photoUrl: `/cards/${t.card_id}/photo` },
     }));

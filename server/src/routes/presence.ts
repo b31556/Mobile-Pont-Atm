@@ -3,34 +3,36 @@ import type { Db } from '../db.js';
 import { normalizeUid } from '../uid.js';
 import { findCardByUid, type CardRow } from './cards.js';
 import { recordSuggestion } from './suggestions.js';
-import { computePoints, getSettings, saveSettings, validateSettings, type PresenceSettings } from '../presence.js';
+import { computePoints, createZone, defaultZone, getZone, listZones, updateZone, validateSettings, DEFAULT_SETTINGS, type Zone } from '../presence.js';
 
 interface SessionRow {
-  id: number; card_id: string; in_at: string; in_terminal: string | null; in_key: string | null; expired_minutes: number | null;
+  id: number; card_id: string; zone_id: string | null; in_at: string; in_terminal: string | null; in_key: string | null; expired_minutes: number | null;
   out_at: string | null; out_terminal: string | null; out_key: string | null; minutes: number | null; points: number; raw: number;
   capped_by: string | null; day_total: number; balance_after: number | null; status: string; tx_id: number | null;
 }
+interface TerminalRow { mode: string; zone_id: string | null; direction: 'in' | 'out' | 'toggle' }
 type Reply = { status: number; body: object };
 const photoUrl = (cardId: string) => `/cards/${cardId}/photo`;
 const DAY_MS = 24 * 3600 * 1000;
 
-/** Points from presence awards in the last 24 h that were not stornoed. */
-function earned24h(db: Db, cardId: string, nowMs: number): number {
+/** Points a card earned in a zone in the last 24 h from presence awards that were not stornoed. */
+function earned24h(db: Db, cardId: string, zoneId: string, nowMs: number): number {
   const since = new Date(nowMs - DAY_MS).toISOString();
-  return (db.prepare("select coalesce(sum(amount),0) s from transactions where card_id=? and kind='presence' and type='give' and status='ok' and created_at>=?")
-    .get(cardId, since) as { s: number }).s;
+  return (db.prepare("select coalesce(sum(amount),0) s from transactions where card_id=? and zone_id=? and kind='presence' and type='give' and status='ok' and created_at>=?")
+    .get(cardId, zoneId, since) as { s: number }).s;
 }
 
-function openSession(db: Db, cardId: string, terminalId: string | null, key: string | null, nowIso: string, expiredMinutes: number | null): SessionRow {
-  const id = db.prepare("insert into presence_sessions(card_id,in_at,in_terminal,in_key,expired_minutes,status) values(?,?,?,?,?,'open')")
-    .run(cardId, nowIso, terminalId, key, expiredMinutes).lastInsertRowid;
+function openSession(db: Db, cardId: string, zoneId: string, terminalId: string | null, key: string | null, nowIso: string, expiredMinutes: number | null): SessionRow {
+  const id = db.prepare("insert into presence_sessions(card_id,zone_id,in_at,in_terminal,in_key,expired_minutes,status) values(?,?,?,?,?,?,'open')")
+    .run(cardId, zoneId, nowIso, terminalId, key, expiredMinutes).lastInsertRowid;
   return db.prepare('select * from presence_sessions where id=?').get(id) as SessionRow;
 }
 
-/** Closes an open visit and pays for it under the saved rules. [terminalId] and [key] are null when an admin does it. */
-function checkOut(db: Db, s: SessionRow, card: CardRow, settings: PresenceSettings, now: Date, terminalId: string | null, key: string | null): SessionRow {
+/** Closes an open visit and pays for it under the rules of the zone it began in. [terminalId] and [key] are null when an admin does it. */
+function checkOut(db: Db, s: SessionRow, card: CardRow, zone: Zone, now: Date, terminalId: string | null, key: string | null): SessionRow {
+  const settings = zone.settings;
   const minutes = Math.max(0, Math.floor((now.getTime() - Date.parse(s.in_at)) / 60000));
-  const earned = earned24h(db, card.id, now.getTime());
+  const earned = earned24h(db, card.id, zone.id, now.getTime());
   const remaining = settings.maxPoints24h === null ? null : Math.max(0, settings.maxPoints24h - earned);
   const r = computePoints(settings, minutes, remaining);
   const iso = now.toISOString();
@@ -39,8 +41,8 @@ function checkOut(db: Db, s: SessionRow, card: CardRow, settings: PresenceSettin
   if (r.awarded > 0) {
     balance += r.awarded;
     db.prepare('update cards set balance=?, last_used=? where id=?').run(balance, iso, card.id);
-    txId = Number(db.prepare(`insert into transactions(card_id,amount,type,status,terminal_id,operator_id,created_at,balance_after,kind,note)
-      values(?,?,'give','ok',?,NULL,?,?,'presence',?)`).run(card.id, r.awarded, terminalId, iso, balance, `${minutes} min`).lastInsertRowid);
+    txId = Number(db.prepare(`insert into transactions(card_id,amount,type,status,terminal_id,operator_id,created_at,balance_after,kind,note,zone_id)
+      values(?,?,'give','ok',?,NULL,?,?,'presence',?,?)`).run(card.id, r.awarded, terminalId, iso, balance, `${minutes} min`, zone.id).lastInsertRowid);
   }
   db.prepare(`update presence_sessions set out_at=?, out_terminal=?, out_key=?, minutes=?, points=?, raw=?, capped_by=?, day_total=?, balance_after=?, status='closed', tx_id=? where id=?`)
     .run(iso, terminalId, key, minutes, r.awarded, r.raw, r.cappedBy, earned + r.awarded, balance, txId, s.id);
@@ -51,29 +53,35 @@ export function registerPresence(app: FastifyInstance) {
   const db = app.db;
   const terminalName = (id: string | null) => id ? (db.prepare('select name from terminals where id=?').get(id) as { name: string } | undefined)?.name ?? '' : '';
   const cardById = (id: string) => db.prepare('select * from cards where id=?').get(id) as CardRow;
+  const zoneOf = (s: SessionRow): Zone => (s.zone_id ? getZone(db, s.zone_id) : undefined) ?? defaultZone(db);
+  const terminalZone = (t: TerminalRow): Zone => (t.zone_id ? getZone(db, t.zone_id) : undefined) ?? defaultZone(db);
 
-  function view(action: string, s: SessionRow, card: CardRow, settings: PresenceSettings, extra: object = {}): Reply {
+  /** The answer for a phone. [action] says what happened; the card, zone and the day's points come with it. */
+  function view(action: string, s: SessionRow | null, card: CardRow, zone: Zone, extra: object = {}): Reply {
     const closed = action === 'out';
     return { status: 200, body: {
       action,
-      card: { id: card.id, name: card.name, photoUrl: photoUrl(card.id), balance: closed ? s.balance_after ?? card.balance : card.balance },
-      inAt: s.in_at, outAt: s.out_at ?? undefined, minutes: s.minutes ?? undefined,
-      points: closed ? s.points : 0, raw: closed ? s.raw : 0, cappedBy: closed ? s.capped_by : null,
-      today: { earned: closed ? s.day_total : earned24h(db, card.id, Date.now()), max: settings.maxPoints24h },
+      card: { id: card.id, name: card.name, photoUrl: photoUrl(card.id), balance: closed && s ? s.balance_after ?? card.balance : card.balance },
+      zone: { id: zone.id, name: zone.name },
+      inAt: s?.in_at, outAt: s?.out_at ?? undefined, minutes: s?.minutes ?? undefined,
+      points: closed && s ? s.points : 0, raw: closed && s ? s.raw : 0, cappedBy: closed && s ? s.capped_by : null,
+      today: { earned: closed && s ? s.day_total : earned24h(db, card.id, zone.id, Date.now()), max: zone.settings.maxPoints24h },
       ...extra,
     } };
   }
 
   const tap = db.transaction((terminalId: string, uidInput: string, key: string): Reply => {
-    const mode = (db.prepare('select mode from terminals where id=?').get(terminalId) as { mode: string }).mode;
-    if (mode !== 'presence') return { status: 409, body: { error: 'This terminal is not in check-in mode.', code: 'wrong_mode' } };
-    const settings = getSettings(db);
+    const term = db.prepare('select mode, zone_id, direction from terminals where id=?').get(terminalId) as TerminalRow;
+    if (term.mode !== 'presence') return { status: 409, body: { error: 'This terminal is not in check-in mode.', code: 'wrong_mode' } };
+    const here = terminalZone(term);
 
     // The same tap arriving twice (a lost reply, then a retry) must give the same answer and change nothing.
     const byIn = db.prepare('select * from presence_sessions where in_terminal=? and in_key=?').get(terminalId, key) as SessionRow | undefined;
-    if (byIn) return view(byIn.expired_minutes !== null ? 'expired_in' : 'in', byIn, cardById(byIn.card_id), settings, byIn.expired_minutes !== null ? { expiredMinutes: byIn.expired_minutes } : {});
+    if (byIn) return view(byIn.expired_minutes !== null ? 'expired_in' : 'in', byIn, cardById(byIn.card_id), zoneOf(byIn), byIn.expired_minutes !== null ? { expiredMinutes: byIn.expired_minutes } : {});
     const byOut = db.prepare('select * from presence_sessions where out_terminal=? and out_key=?').get(terminalId, key) as SessionRow | undefined;
-    if (byOut) return view('out', byOut, cardById(byOut.card_id), settings);
+    if (byOut) return byOut.status === 'expired'
+      ? view('expired_out', byOut, cardById(byOut.card_id), zoneOf(byOut), { expiredMinutes: byOut.minutes })
+      : view('out', byOut, cardById(byOut.card_id), zoneOf(byOut));
 
     const uid = normalizeUid(uidInput);
     const card = uid ? findCardByUid(db, uid) : undefined;
@@ -85,20 +93,34 @@ export function registerPresence(app: FastifyInstance) {
 
     const now = new Date();
     const open = db.prepare("select * from presence_sessions where card_id=? and status='open'").get(card.id) as SessionRow | undefined;
-    if (!open) return view('in', openSession(db, card.id, terminalId, key, now.toISOString(), null), card, settings);
-
-    const ageSeconds = (now.getTime() - Date.parse(open.in_at)) / 1000;
-    if (ageSeconds < settings.cooldownSeconds) return view('cooldown', open, card, settings);
-    if (ageSeconds > settings.maxStayHours * 3600) {
-      const minutes = Math.floor(ageSeconds / 60);
-      db.prepare("update presence_sessions set status='expired', out_at=?, minutes=?, points=0 where id=?").run(now.toISOString(), minutes, open.id);
-      return view('expired_in', openSession(db, card.id, terminalId, key, now.toISOString(), minutes), card, settings, { expiredMinutes: minutes });
+    if (!open) {
+      if (term.direction === 'out') return view('not_in', null, card, here);
+      return view('in', openSession(db, card.id, here.id, terminalId, key, now.toISOString(), null), card, here);
     }
-    return view('out', checkOut(db, open, card, settings, now, terminalId, key), card, settings);
+
+    // Someone is inside: the zone they went into decides the lock-out, the longest stay and the pay.
+    const visitZone = zoneOf(open);
+    const rules = visitZone.settings;
+    const ageSeconds = (now.getTime() - Date.parse(open.in_at)) / 1000;
+    if (ageSeconds < rules.cooldownSeconds) return view('cooldown', open, card, visitZone);
+    if (ageSeconds > rules.maxStayHours * 3600) {
+      const minutes = Math.floor(ageSeconds / 60);
+      if (term.direction === 'out') {
+        db.prepare("update presence_sessions set status='expired', out_at=?, out_terminal=?, out_key=?, minutes=?, points=0 where id=?").run(now.toISOString(), terminalId, key, minutes, open.id);
+        return view('expired_out', db.prepare('select * from presence_sessions where id=?').get(open.id) as SessionRow, card, visitZone, { expiredMinutes: minutes });
+      }
+      db.prepare("update presence_sessions set status='expired', out_at=?, minutes=?, points=0 where id=?").run(now.toISOString(), minutes, open.id);
+      return view('expired_in', openSession(db, card.id, here.id, terminalId, key, now.toISOString(), minutes), card, here, { expiredMinutes: minutes });
+    }
+    if (term.direction === 'in') return view('already_in', open, card, visitZone);
+    return view('out', checkOut(db, open, card, visitZone, now, terminalId, key), card, visitZone);
   });
 
-  app.get('/terminal/config', { preHandler: app.requireOperator }, async req =>
-    db.prepare('select mode, name from terminals where id=?').get(req.user.terminalId));
+  app.get('/terminal/config', { preHandler: app.requireOperator }, async req => {
+    const t = db.prepare('select mode, name, direction, zone_id from terminals where id=?').get(req.user.terminalId) as { mode: string; name: string; direction: string; zone_id: string | null };
+    const zone = t.mode === 'presence' ? terminalZone(t as unknown as TerminalRow) : t.zone_id ? getZone(db, t.zone_id) : undefined;
+    return { mode: t.mode, name: t.name, direction: t.direction, zoneName: zone?.name ?? null };
+  });
 
   app.post('/presence/tap', { preHandler: app.requireOperator }, async (req, reply) => {
     const b = (req.body ?? {}) as { cardUid?: string; idempotencyKey?: unknown };
@@ -109,54 +131,105 @@ export function registerPresence(app: FastifyInstance) {
     return reply.code(r.status).send(r.body);
   });
 
-  app.get('/presence/settings', { preHandler: app.requireAdmin }, async () => getSettings(db));
-
-  app.put('/presence/settings', { preHandler: app.requireAdmin }, async (req, reply) => {
-    const v = validateSettings(req.body);
-    if (!v.ok) return reply.code(400).send({ error: v.error });
-    saveSettings(db, v.value);
-    return v.value;
+  // ---- zones ----
+  const zoneJson = (z: Zone) => ({
+    ...z,
+    terminals: (db.prepare('select count(*) c from terminals where zone_id=? and active=1').get(z.id) as { c: number }).c,
+    inside: (db.prepare("select count(*) c from presence_sessions where zone_id=? and status='open'").get(z.id) as { c: number }).c,
   });
+  const nameTaken = (name: string, exceptId?: string) =>
+    !!db.prepare('select 1 from zones where name=? collate nocase and id!=?').get(name, exceptId ?? '');
 
-  app.post('/presence/preview', { preHandler: app.requireAdmin }, async (req, reply) => {
-    const b = (req.body ?? {}) as { settings?: unknown; minutes?: unknown };
-    if (!Array.isArray(b.minutes) || b.minutes.length === 0 || b.minutes.length > 50 || !b.minutes.every(m => Number.isInteger(m) && m >= 0 && m <= 100000)) {
-      return reply.code(400).send({ error: 'minutes must be a list of up to 50 whole numbers' });
-    }
-    let settings = getSettings(db);
+  app.get('/zones', { preHandler: app.requireAdmin }, async () => listZones(db).map(zoneJson));
+
+  app.post('/zones', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const b = (req.body ?? {}) as { name?: string; settings?: unknown };
+    const name = (b.name ?? '').trim();
+    if (!name) return reply.code(400).send({ error: 'Give the zone a name' });
+    if (nameTaken(name)) return reply.code(409).send({ error: 'A zone with that name already exists' });
+    let settings = { ...DEFAULT_SETTINGS };
     if (b.settings !== undefined) {
       const v = validateSettings(b.settings);
       if (!v.ok) return reply.code(400).send({ error: v.error });
       settings = v.value;
     }
+    return reply.code(201).send(zoneJson(createZone(db, name, settings)));
+  });
+
+  app.put('/zones/:id', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { name?: string; settings?: unknown };
+    if (!getZone(db, id)) return reply.code(404).send({ error: 'Zone not found' });
+    const change: Partial<Pick<Zone, 'name' | 'settings'>> = {};
+    if (b.name !== undefined) {
+      const name = b.name.trim();
+      if (!name) return reply.code(400).send({ error: 'Give the zone a name' });
+      if (nameTaken(name, id)) return reply.code(409).send({ error: 'A zone with that name already exists' });
+      change.name = name;
+    }
+    if (b.settings !== undefined) {
+      const v = validateSettings(b.settings);
+      if (!v.ok) return reply.code(400).send({ error: v.error });
+      change.settings = v.value;
+    }
+    return zoneJson(updateZone(db, id, change)!);
+  });
+
+  app.delete('/zones/:id', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!getZone(db, id)) return reply.code(404).send({ error: 'Zone not found' });
+    if (listZones(db).length === 1) return reply.code(409).send({ error: 'There has to be at least one zone.' });
+    const terminals = (db.prepare('select count(*) c from terminals where zone_id=? and active=1').get(id) as { c: number }).c;
+    if (terminals) return reply.code(409).send({ error: `${terminals} terminal${terminals === 1 ? ' uses' : 's use'} this zone. Move ${terminals === 1 ? 'it' : 'them'} to another zone first.` });
+    const visits = (db.prepare('select count(*) c from presence_sessions where zone_id=?').get(id) as { c: number }).c;
+    if (visits) return reply.code(409).send({ error: 'This zone has visit history, so it can’t be deleted. Rename it instead.' });
+    db.prepare('update terminals set zone_id=NULL where zone_id=?').run(id);
+    db.prepare('delete from zones where id=?').run(id);
+    return { ok: true };
+  });
+
+  app.post('/presence/preview', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const b = (req.body ?? {}) as { settings?: unknown; zoneId?: string; minutes?: unknown };
+    if (!Array.isArray(b.minutes) || b.minutes.length === 0 || b.minutes.length > 50 || !b.minutes.every(m => Number.isInteger(m) && m >= 0 && m <= 100000)) {
+      return reply.code(400).send({ error: 'minutes must be a list of up to 50 whole numbers' });
+    }
+    let settings = defaultZone(db).settings;
+    if (b.settings !== undefined) {
+      const v = validateSettings(b.settings);
+      if (!v.ok) return reply.code(400).send({ error: v.error });
+      settings = v.value;
+    } else if (b.zoneId !== undefined) {
+      const z = getZone(db, b.zoneId);
+      if (!z) return reply.code(404).send({ error: 'Zone not found' });
+      settings = z.settings;
+    }
     return (b.minutes as number[]).map(minutes => ({ minutes, ...computePoints(settings, minutes, null) }));
   });
 
   app.get('/presence/sessions', { preHandler: app.requireAdmin }, async () => {
-    const settings = getSettings(db);
     const nowMs = Date.now();
     const cardView = (s: SessionRow) => { const c = cardById(s.card_id); return { id: c.id, name: c.name, photoUrl: photoUrl(c.id) }; };
     const open = db.prepare("select * from presence_sessions where status='open' order by in_at").all() as SessionRow[];
     const recent = db.prepare("select * from presence_sessions where status!='open' order by id desc limit 50").all() as SessionRow[];
     return {
       inside: open.map(s => {
+        const zone = zoneOf(s);
         const minutes = Math.max(0, Math.floor((nowMs - Date.parse(s.in_at)) / 60000));
-        const remaining = settings.maxPoints24h === null ? null : Math.max(0, settings.maxPoints24h - earned24h(db, s.card_id, nowMs));
-        return { id: s.id, card: cardView(s), inAt: s.in_at, terminal: terminalName(s.in_terminal), minutes,
-          overdue: minutes > settings.maxStayHours * 60, wouldEarn: computePoints(settings, minutes, remaining).awarded };
+        const remaining = zone.settings.maxPoints24h === null ? null : Math.max(0, zone.settings.maxPoints24h - earned24h(db, s.card_id, zone.id, nowMs));
+        return { id: s.id, card: cardView(s), zone: zone.name, inAt: s.in_at, terminal: terminalName(s.in_terminal), minutes,
+          overdue: minutes > zone.settings.maxStayHours * 60, wouldEarn: computePoints(zone.settings, minutes, remaining).awarded };
       }),
-      recent: recent.map(s => ({ id: s.id, card: cardView(s), inAt: s.in_at, outAt: s.out_at, minutes: s.minutes, points: s.points, status: s.status, terminal: terminalName(s.out_terminal ?? s.in_terminal) })),
+      recent: recent.map(s => ({ id: s.id, card: cardView(s), zone: zoneOf(s).name, inAt: s.in_at, outAt: s.out_at, minutes: s.minutes, points: s.points, status: s.status, terminal: terminalName(s.out_terminal ?? s.in_terminal) })),
     };
   });
 
   app.post('/presence/sessions/:id/close', { preHandler: app.requireAdmin }, async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
     const award = (req.body as { award?: unknown } | undefined)?.award === true;
-    const settings = getSettings(db);
     const result = db.transaction(() => {
       const s = db.prepare("select * from presence_sessions where id=? and status='open'").get(id) as SessionRow | undefined;
       if (!s) return null;
-      if (award) return checkOut(db, s, cardById(s.card_id), settings, new Date(), null, null).points;
+      if (award) return checkOut(db, s, cardById(s.card_id), zoneOf(s), new Date(), null, null).points;
       const now = new Date();
       db.prepare("update presence_sessions set status='discarded', out_at=?, minutes=?, points=0 where id=?")
         .run(now.toISOString(), Math.max(0, Math.floor((now.getTime() - Date.parse(s.in_at)) / 60000)), id);
