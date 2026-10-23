@@ -16,12 +16,15 @@ import { registerSuggestions } from './routes/suggestions.js';
 import { registerPresence } from './routes/presence.js';
 import { registerDevices } from './routes/devices.js';
 import { registerFixed } from './routes/fixed.js';
+import { registerDisplay } from './routes/display.js';
+import { DisplayHub } from './display.js';
 
 export interface AppOptions { db: Db; jwtSecret: string; dataDir?: string; trustProxy?: boolean }
 
 export function buildApp(opts: AppOptions): FastifyInstance {
   const app = Fastify({ logger: false, trustProxy: opts.trustProxy ?? false });
   app.decorate('db', opts.db);
+  app.decorate('displayHub', new DisplayHub());
   app.decorate('loginLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
   app.decorate('pairLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
   app.register(jwt, { secret: opts.jwtSecret });
@@ -38,10 +41,12 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   registerPresence(app);
   registerDevices(app);
   registerFixed(app);
+  registerDisplay(app, opts.dataDir ?? './data');
+  app.register(fastifyStatic, { root: join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'display'), prefix: '/display-assets/', decorateReply: false });
   app.get('/health', async () => ({ ok: true }));
   return app;
 }
 
 declare module 'fastify' {
-  interface FastifyInstance { db: Db; loginLimiter: AttemptLimiter; pairLimiter: AttemptLimiter }
+  interface FastifyInstance { displayHub: DisplayHub; db: Db; loginLimiter: AttemptLimiter; pairLimiter: AttemptLimiter }
 }

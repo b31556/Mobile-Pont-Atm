@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Tap your card</title>
+<link rel="stylesheet" href="/display-assets/display.css">
+</head>
+<body>
+<main id="stage" data-state="idle" aria-live="polite">
+  <header>
+    <span id="reader" class="reader"></span>
+    <span id="live" class="live" data-ok="false">Connecting…</span>
+  </header>
+
+  <section id="idle" class="idle">
+    <div class="rings" aria-hidden="true"><i></i><i></i><i></i></div>
+    <h1>Tap your card</h1>
+    <p id="idle-sub"></p>
+  </section>
+
+  <section id="result" class="result" hidden>
+    <div class="photo" id="photo" aria-hidden="true"></div>
+    <p id="name" class="name"></p>
+    <h2 id="headline" class="headline"></h2>
+    <ul id="details" class="details"></ul>
+    <p id="balance" class="balance" hidden></p>
+  </section>
+
+  <section id="gone" class="idle" hidden>
+    <h1>This link is no longer valid</h1>
+    <p>Ask an admin for the reader’s current display link.</p>
+  </section>
+
+  <footer>
+    <button id="sound" type="button" hidden></button>
+  </footer>
+</main>
+<script src="/display-assets/display.js"></script>
+</body>
+</html>

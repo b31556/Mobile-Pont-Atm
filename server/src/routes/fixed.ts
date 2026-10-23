@@ -3,6 +3,7 @@ import { stamp } from '../clock.js';
 import { evaluateFixed, type FixedSettings, type FixedStats } from '../fixed.js';
 import { normalizeUid } from '../uid.js';
 import { findCardByUid, type CardRow } from './cards.js';
+import { publishTap } from './display.js';
 import { recordSuggestion } from './suggestions.js';
 
 type Reply = { status: number; body: object };
@@ -78,6 +79,7 @@ export function registerFixed(app: FastifyInstance) {
       return reply.code(400).send({ error: 'idempotencyKey is required', code: 'bad_request' });
     }
     const r = tap(req.user.terminalId!, b.cardUid ?? '', b.idempotencyKey);
+    publishTap(app, req.user.terminalId, 'fixed', r);
     return reply.code(r.status).send(r.body);
   });
 }
