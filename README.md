@@ -76,6 +76,10 @@ The phone then has no buttons: "Tap your card" (or "Tap to sign in" / "Tap to si
 
 Good to know: a visit is paid by the rules of the zone where it began, whichever point signs out. A visit longer than the zone's longest stay earns nothing (forgotten sign-outs can't farm points). A sign-in point does not move someone who is still inside; a sign-out point does nothing for someone who isn't inside. Admins see who is inside, with Sign out and Discard buttons, and can storno a check-out award in Transactions. Admin grants and deductions (Cards, then a card, then Grant or take away) are listed in Transactions with who did it and why.
 
+## ESP32 readers
+
+`firmware/esp32-reader/` has the firmware for a small reader (ESP32 DevKit V1 + MFRC522 + 4-digit display) with wiring, flashing steps and what the display shows. The reader finds the server on your network and shows a 4-digit code until you approve it on the admin **Readers** tab (the same code is listed there). Then you set it to **Fixed amount** (every tap gives X points, with per-card limits: seconds between taps, taps and points per 24 hours, taps ever) or **Check-in** (zone and sign-in / sign-out / toggle). Fixed-amount grants appear in Transactions and can be stornoed like any other.
+
 ## Behavior worth knowing
 
 - A charge carries a one-time key. If the connection drops and the operator taps again, the server returns the original result instead of crediting twice.
