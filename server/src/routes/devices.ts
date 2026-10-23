@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { AttemptLimiter, TOO_MANY } from '../limiter.js';
 import { defaultZone } from '../presence.js';
@@ -10,7 +10,7 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 interface DeviceRow {
   id: string; secret_hash: string; status: 'pending' | 'approved' | 'revoked'; terminal_id: string | null;
-  ip: string | null; firmware: string | null; first_seen: string; last_seen: string;
+  ip: string | null; firmware: string | null; first_seen: string; last_seen: string; pair_code: string | null;
 }
 
 /** Readers (ESP32) register themselves and wait for an admin to approve them; after that they act as a terminal. */
@@ -18,6 +18,15 @@ export function registerDevices(app: FastifyInstance) {
   const db = app.db;
   const calls = new AttemptLimiter(120, 5 * 60 * 1000);       // every hello counts, per address
   const badSecrets = new AttemptLimiter(10, 15 * 60 * 1000);  // wrong secrets, per address
+
+  /** A 4-digit code no other waiting device has. The reader shows it and the admin sees it, so they can tell which reader is which. */
+  function newPairCode(): string {
+    const taken = new Set((db.prepare("select pair_code from devices where status='pending' and pair_code is not null").all() as { pair_code: string }[]).map(r => r.pair_code));
+    for (;;) {
+      const code = String(randomInt(1000, 10000));
+      if (!taken.has(code)) return code;
+    }
+  }
 
   app.post('/device/hello', async (req, reply) => {
     const ip = req.ip;
@@ -35,15 +44,20 @@ export function registerDevices(app: FastifyInstance) {
     if (!row) {
       const waiting = (db.prepare("select count(*) c from devices where status='pending'").get() as { c: number }).c;
       if (waiting >= MAX_WAITING) return reply.code(429).send({ error: 'Too many devices are waiting for approval. Approve or remove some in admin.' });
-      db.prepare("insert into devices(id,secret_hash,status,ip,firmware,first_seen,last_seen) values(?,?,'pending',?,?,?,?)").run(b.deviceId, hash, ip, firmware, now, now);
-      return { status: 'pending' };
+      const code = newPairCode();
+      db.prepare("insert into devices(id,secret_hash,status,ip,firmware,first_seen,last_seen,pair_code) values(?,?,'pending',?,?,?,?,?)").run(b.deviceId, hash, ip, firmware, now, now, code);
+      return { status: 'pending', code };
     }
     if (!timingSafeEqual(Buffer.from(hash), Buffer.from(row.secret_hash))) {
       badSecrets.fail(ip);
       return reply.code(403).send({ error: 'Wrong secret for this device' });
     }
     db.prepare('update devices set ip=?, firmware=?, last_seen=? where id=?').run(ip, firmware ?? row.firmware, now, row.id);
-    if (row.status === 'pending') return { status: 'pending' };
+    if (row.status === 'pending') {
+      const code = row.pair_code ?? newPairCode();
+      if (!row.pair_code) db.prepare('update devices set pair_code=? where id=?').run(code, row.id);
+      return { status: 'pending', code };
+    }
     if (row.status === 'revoked') return { status: 'revoked' };
     const t = db.prepare('select id,name,mode,active from terminals where id=?').get(row.terminal_id ?? '') as { id: string; name: string; mode: string; active: number } | undefined;
     if (!t || !t.active) {
@@ -59,7 +73,7 @@ export function registerDevices(app: FastifyInstance) {
     return rows.map(d => {
       const t = d.terminal_id ? db.prepare('select id,name,mode,active from terminals where id=?').get(d.terminal_id) as { id: string; name: string; mode: string; active: number } | undefined : undefined;
       return {
-        id: d.id, status: d.status, ip: d.ip, firmware: d.firmware, firstSeen: d.first_seen, lastSeen: d.last_seen,
+        id: d.id, status: d.status, code: d.status === 'pending' ? d.pair_code : null, ip: d.ip, firmware: d.firmware, firstSeen: d.first_seen, lastSeen: d.last_seen,
         online: Date.now() - Date.parse(d.last_seen) < ONLINE_WINDOW_MS,
         terminal: t && t.active ? { id: t.id, name: t.name, mode: t.mode } : null,
       };
@@ -81,7 +95,7 @@ export function registerDevices(app: FastifyInstance) {
     db.transaction(() => {
       db.prepare("insert into terminals(id,name,place,active,mode,kind,zone_id) values(?,?,?,1,?,'device',?)")
         .run(terminalId, name, b.place ?? '', mode, mode === 'presence' ? defaultZone(db).id : null);
-      db.prepare("update devices set status='approved', terminal_id=? where id=?").run(terminalId, id);
+      db.prepare("update devices set status='approved', terminal_id=?, pair_code=NULL where id=?").run(terminalId, id);
     })();
     return { device: { id, status: 'approved' }, terminal: { id: terminalId, name, mode } };
   });
