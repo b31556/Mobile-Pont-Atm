@@ -137,8 +137,19 @@ static void testPlans() {
   for (const char* w : words) { CHECK(std::strlen(w) <= 4); for (const char* q = w; *q; q++) CHECK(glyph(*q) != 0); }
 }
 
+static void testPairCode() {
+  CHECK(isPairCode("4821")); CHECK(isPairCode("1000")); CHECK(isPairCode("9999"));
+  CHECK(!isPairCode("482")); CHECK(!isPairCode("48210")); CHECK(!isPairCode("48a1")); CHECK(!isPairCode("")); CHECK(!isPairCode(nullptr));
+  uint8_t o[4];
+  textToSegments("4821", o); CHECK_SEG(o, 0x66, 0x7F, 0x5B, 0x06);      // shown as typed: digits, not stripped of anything
+  CHECK(std::strcmp(planForStatus("pending").word, "PEnd") == 0);
+  CHECK(std::strcmp(planForStatus("revoked").word, "OFF") == 0);
+  CHECK(std::strcmp(planForStatus("approved").word, "") == 0);
+  CHECK(std::strcmp(planForStatus(nullptr).word, "Err") == 0);
+}
+
 int main() {
-  testGlyphs(); testText(); testNumbers(); testFill(); testLoading(); testRoll(); testScroll(); testUid(); testPlans();
+  testGlyphs(); testText(); testNumbers(); testFill(); testLoading(); testRoll(); testScroll(); testUid(); testPlans(); testPairCode();
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures ? 1 : 0;
 }

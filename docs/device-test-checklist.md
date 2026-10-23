@@ -67,3 +67,18 @@ Notes / failures:
 - [ ] Switch the terminal back to ATM in admin: the phone shows the keypad within about 30 seconds
 - [ ] Admin: Check-in page shows who is inside; Sign out awards points, Discard doesn't; Storno of a check-out award in Transactions frees the 24-hour allowance
 - [ ] Admin: grant and deduct points on a card with a reason; both appear in Transactions as Admin grant / Admin deduction with the admin's name and the reason
+
+## ESP32 readers (see firmware/esp32-reader/README.md)
+- [ ] Wiring checked against the table; the display shows `8888` for a moment at power-on, and no `Err` after a few seconds
+- [ ] The reader joins WiFi and shows a steady 4-digit code; the same code and the reader's address are listed under Readers in admin; no other reader shows that code
+- [ ] Approve it as Fixed amount: within a few seconds the display shows `----`
+- [ ] Tap a registered card: lines fill in left to right (bottom, middle, top), then the number rolls up to the new balance and stays about 3 seconds, then `----`
+- [ ] The balance matches the card in admin, and the grant is in Transactions (and can be stornoed)
+- [ ] Hold the card on the reader: it is read once, not repeatedly. Tap again straight away: `PAUS`
+- [ ] Set limits (taps per 24 h, points per 24 h, taps ever) and check `FULL` when reached; storno a grant and the card can tap again
+- [ ] Blocked card: `bLoc`. Unregistered card: `----` blinks, and the card appears under Suggested cards
+- [ ] Change the reader to Check-in (zone, sign in / out / toggle): it follows within 30 seconds; `In` then balance, `OUt` then balance, `nOIn` at an exit with nobody inside
+- [ ] Unplug the server's network: the reader shows `nEt`, and recovers by itself when the network is back
+- [ ] Revoke the reader in admin: `OFF` within 30 seconds; Forget it, restart the reader: a new code appears
+- [ ] Power-cycle the reader: it comes back approved without a new code
+- [ ] Reader and card reader stay reliable for several minutes of taps (no random `Err`)
