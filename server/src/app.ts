@@ -14,6 +14,8 @@ import { registerCharges } from './routes/charges.js';
 import { registerPresets } from './routes/presets.js';
 import { registerSuggestions } from './routes/suggestions.js';
 import { registerPresence } from './routes/presence.js';
+import { registerDevices } from './routes/devices.js';
+import { registerFixed } from './routes/fixed.js';
 
 export interface AppOptions { db: Db; jwtSecret: string; dataDir?: string; trustProxy?: boolean }
 
@@ -34,6 +36,8 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   registerPresets(app);
   registerSuggestions(app);
   registerPresence(app);
+  registerDevices(app);
+  registerFixed(app);
   app.get('/health', async () => ({ ok: true }));
   return app;
 }

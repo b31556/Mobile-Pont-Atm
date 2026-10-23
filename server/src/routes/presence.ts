@@ -118,9 +118,9 @@ export function registerPresence(app: FastifyInstance) {
   });
 
   app.get('/terminal/config', { preHandler: app.requireOperator }, async req => {
-    const t = db.prepare('select mode, name, direction, zone_id from terminals where id=?').get(req.user.terminalId) as { mode: string; name: string; direction: string; zone_id: string | null };
+    const t = db.prepare('select mode, name, direction, zone_id, kind from terminals where id=?').get(req.user.terminalId) as { mode: string; name: string; direction: string; zone_id: string | null; kind: string };
     const zone = t.mode === 'presence' ? terminalZone(t as unknown as TerminalRow) : t.zone_id ? getZone(db, t.zone_id) : undefined;
-    return { mode: t.mode, name: t.name, direction: t.direction, zoneName: zone?.name ?? null };
+    return { mode: t.mode, name: t.name, direction: t.direction, zoneName: zone?.name ?? null, kind: t.kind };
   });
 
   app.post('/presence/tap', { preHandler: app.requireOperator }, async (req, reply) => {

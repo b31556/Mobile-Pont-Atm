@@ -342,7 +342,7 @@ describe('terminal mode', () => {
   it('a phone reads its mode and name; an admin changes the mode', async () => {
     const { app, adminToken, bar } = await setup();
     const config = () => app.inject({ method: 'GET', url: '/terminal/config', headers: auth(bar.terminalToken) });
-    expect((await config()).json()).toEqual({ mode: 'atm', name: 'Bar', direction: 'toggle', zoneName: null });
+    expect((await config()).json()).toEqual({ mode: 'atm', name: 'Bar', direction: 'toggle', zoneName: null, kind: 'phone' });
     const patch = await app.inject({ method: 'PATCH', url: `/terminals/${bar.terminalId}`, headers: auth(adminToken), payload: { mode: 'presence' } });
     expect(patch.statusCode).toBe(200);
     expect((await config()).json().mode).toBe('presence');
@@ -436,7 +436,7 @@ describe('zones', () => {
     const list = (await app.inject({ method: 'GET', url: '/terminals', headers: auth(adminToken) })).json();
     expect(list.find((t: { name: string }) => t.name === 'Bar')).toMatchObject({ mode: 'presence', zoneId: gym.id, zoneName: 'Gym', direction: 'in' });
     const config = (await app.inject({ method: 'GET', url: '/terminal/config', headers: auth(bar.terminalToken) })).json();
-    expect(config).toEqual({ mode: 'presence', name: 'Bar', direction: 'in', zoneName: 'Gym' });
+    expect(config).toEqual({ mode: 'presence', name: 'Bar', direction: 'in', zoneName: 'Gym', kind: 'phone' });
     expect((await assign(bar, { direction: 'sideways' })).statusCode).toBe(400);
     expect((await assign(bar, { zoneId: 'nope' })).statusCode).toBe(404);
   });

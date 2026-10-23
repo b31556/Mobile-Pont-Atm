@@ -3,6 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import { checkTerminalToken } from '../auth.js';
 import { TOO_MANY } from '../limiter.js';
 import { defaultZone, getZone } from '../presence.js';
+import { validateFixed } from '../fixed.js';
+import { fixedOf } from './fixed.js';
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
@@ -29,7 +31,9 @@ export function registerTerminals(app: FastifyInstance) {
       return {
         id: t.id, name: t.name, place: t.place, lastSeen: t.last_seen, appVersion: t.app_version, device: t.device,
         online: !!t.last_seen && Date.now() - Date.parse(t.last_seen) < ONLINE_WINDOW_MS,
-        givenToday: given.s, operator: t.last_operator ?? '', mode: t.mode, direction: t.direction,
+        givenToday: given.s, operator: t.last_operator ?? '', mode: t.mode, direction: t.direction, kind: t.kind, fixed: fixedOf(t),
+        ip: t.kind === 'device' ? (db.prepare('select ip from devices where terminal_id=?').get(t.id) as { ip: string | null } | undefined)?.ip ?? null : null,
+        firmware: t.kind === 'device' ? (db.prepare('select firmware from devices where terminal_id=?').get(t.id) as { firmware: string | null } | undefined)?.firmware ?? null : null,
         zoneId: t.zone_id ?? null, zoneName: t.zone_id ? (db.prepare('select name from zones where id=?').get(t.zone_id) as { name: string } | undefined)?.name ?? null : null,
       };
     });
@@ -51,10 +55,20 @@ export function registerTerminals(app: FastifyInstance) {
 
   app.patch('/terminals/:id', { preHandler: app.requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = (req.body ?? {}) as { name?: string; place?: string; mode?: string; zoneId?: string; direction?: string };
-    const t = db.prepare('select zone_id from terminals where id=? and active=1').get(id) as { zone_id: string | null } | undefined;
+    const b = (req.body ?? {}) as { name?: string; place?: string; mode?: string; zoneId?: string; direction?: string; fixed?: unknown };
+    const t = db.prepare('select zone_id, kind from terminals where id=? and active=1').get(id) as { zone_id: string | null; kind: string } | undefined;
     if (!t) return reply.code(404).send({ error: 'Terminal not found' });
-    if (b.mode !== undefined && !['atm', 'presence'].includes(b.mode)) return reply.code(400).send({ error: 'mode must be atm or presence' });
+    if (b.mode !== undefined) {
+      const allowed = t.kind === 'device' ? ['presence', 'fixed'] : ['atm', 'presence'];
+      if (!allowed.includes(b.mode)) return reply.code(400).send({ error: t.kind === 'device' ? 'A reader can be in check-in (presence) or fixed-amount mode' : 'A phone can be in ATM or check-in (presence) mode' });
+    }
+    let fixed = null;
+    if (b.fixed !== undefined) {
+      if (t.kind !== 'device') return reply.code(400).send({ error: 'Only readers have fixed-amount settings' });
+      const v = validateFixed(b.fixed);
+      if (!v.ok) return reply.code(400).send({ error: v.error });
+      fixed = v.value;
+    }
     if (b.direction !== undefined && !['in', 'out', 'toggle'].includes(b.direction)) return reply.code(400).send({ error: 'direction must be in, out or toggle' });
     if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'Give the terminal a name' });
     if (b.zoneId !== undefined && !getZone(db, b.zoneId)) return reply.code(404).send({ error: 'Zone not found' });
@@ -63,6 +77,10 @@ export function registerTerminals(app: FastifyInstance) {
     if (b.place !== undefined) { set.push('place=?'); vals.push(b.place); }
     if (b.mode !== undefined) { set.push('mode=?'); vals.push(b.mode); }
     if (b.direction !== undefined) { set.push('direction=?'); vals.push(b.direction); }
+    if (fixed) {
+      set.push('fixed_amount=?', 'fixed_cooldown_seconds=?', 'fixed_max_uses_24h=?', 'fixed_max_points_24h=?', 'fixed_max_uses_total=?');
+      vals.push(fixed.amount, fixed.cooldownSeconds, fixed.maxUses24h, fixed.maxPoints24h, fixed.maxUsesTotal);
+    }
     if (b.zoneId !== undefined) { set.push('zone_id=?'); vals.push(b.zoneId); }
     else if (b.mode === 'presence' && !t.zone_id) { set.push('zone_id=?'); vals.push(defaultZone(db).id); }
     if (set.length) db.prepare(`update terminals set ${set.join(',')} where id=?`).run(...vals, id);
