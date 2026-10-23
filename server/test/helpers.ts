@@ -40,3 +40,17 @@ export async function makeOperator(app: App, db: ReturnType<typeof openDb>, emai
   const token = await login(app, email, 'pw123456', t.terminalToken);
   return { token, ...t };
 }
+
+let deviceCounter = 0;
+
+/** Registers a reader the way the firmware does and approves it in admin; returns its terminal token and ids. */
+export async function makeReader(app: App, adminToken: string, opts: { name?: string; mode?: 'fixed' | 'presence' } = {}) {
+  const deviceId = `AA:BB:CC:00:00:${(++deviceCounter).toString(16).padStart(2, '0').toUpperCase()}`;
+  const secret = `secret-${deviceId}-0123456789`;
+  const hello = () => app.inject({ method: 'POST', url: '/device/hello', payload: { deviceId, secret, firmware: '1.0.0' } });
+  await hello();
+  const approve = await app.inject({ method: 'POST', url: `/devices/${encodeURIComponent(deviceId)}/approve`, headers: auth(adminToken), payload: { name: opts.name ?? 'Reader', mode: opts.mode ?? 'fixed' } });
+  const terminalId = approve.json().terminal.id as string;
+  const terminalToken = (await hello()).json().terminalToken as string;
+  return { deviceId, secret, terminalId, terminalToken, hello };
+}

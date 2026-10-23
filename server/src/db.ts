@@ -15,7 +15,10 @@ create table if not exists terminals(
   id text primary key, name text not null, place text not null default '',
   active integer not null default 1, last_seen text, app_version text, device text,
   instant_preset integer not null default 1, last_operator text, presets_saved integer not null default 0,
-  mode text not null default 'atm', zone_id text references zones(id), direction text not null default 'toggle'
+  mode text not null default 'atm', zone_id text references zones(id), direction text not null default 'toggle',
+  kind text not null default 'phone',
+  fixed_amount integer not null default 10, fixed_cooldown_seconds integer not null default 60,
+  fixed_max_uses_24h integer, fixed_max_points_24h integer, fixed_max_uses_total integer
 );
 create table if not exists pairing_codes(
   code text primary key, terminal_id text not null references terminals(id),
@@ -64,6 +67,11 @@ create table if not exists presence_sessions(
 create unique index if not exists presence_open on presence_sessions(card_id) where status='open';
 create unique index if not exists presence_in_key on presence_sessions(in_terminal, in_key) where in_key is not null;
 create unique index if not exists presence_out_key on presence_sessions(out_terminal, out_key) where out_key is not null;
+create table if not exists devices(
+  id text primary key, secret_hash text not null,
+  status text not null check(status in ('pending','approved','revoked')),
+  terminal_id text references terminals(id), ip text, firmware text, first_seen text not null, last_seen text not null
+);
 create table if not exists presets(
   terminal_id text not null references terminals(id), value integer not null,
   primary key(terminal_id, value)
@@ -96,6 +104,12 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'transactions', 'zone_id', 'text');
   ensureColumn(db, 'balance_adjustments', 'balance_after', 'integer');
   ensureColumn(db, 'balance_adjustments', 'reason', 'text');
+  ensureColumn(db, 'terminals', 'kind', "text not null default 'phone'");
+  ensureColumn(db, 'terminals', 'fixed_amount', 'integer not null default 10');
+  ensureColumn(db, 'terminals', 'fixed_cooldown_seconds', 'integer not null default 60');
+  ensureColumn(db, 'terminals', 'fixed_max_uses_24h', 'integer');
+  ensureColumn(db, 'terminals', 'fixed_max_points_24h', 'integer');
+  ensureColumn(db, 'terminals', 'fixed_max_uses_total', 'integer');
   ensureDefaultZone(db);
   return db;
 }
