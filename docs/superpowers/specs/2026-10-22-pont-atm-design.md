@@ -60,5 +60,14 @@ A terminal can run as a sign-in / sign-out point instead of an ATM. Points are e
 ### Admin grants and deductions in the transaction list (added 2026-10-22, requested by the user)
 Points an admin grants or takes away by hand are listed in the admin Transactions table (`type: adjust`, positive = grant, negative = deduction) with the admin's name, an optional reason (up to 200 characters) and the time. They are never shown to phones. They are stored in `balance_adjustments` (with the balance after), not in `transactions`, so they cannot be stornoed. Timestamps for charges, stornos, adjustments and check-ins are strictly increasing, so records made in the same millisecond keep their order.
 
+## ESP32 readers (added 2026-10-23, approved by the user)
+A small hardware terminal: ESP32 DevKit V1 + MFRC522 + 4-digit TM1637 display, on the LAN over plain HTTP (e.g. `http://192.168.x.x:3000`). Firmware lives in `firmware/esp32-reader/` (PlatformIO, Arduino framework).
+
+- **Joining:** the reader generates a secret once and calls `POST /device/hello {deviceId, secret, firmware}` every 30 s. An unknown device becomes `pending` and shows in admin (Readers tab, with its IP). An admin approves it with a name and a mode; the reply to the next hello carries a terminal token, which the reader keeps and uses exactly like a phone. Admins can revoke or forget a device. A wrong secret for a known device id is refused. At most 20 devices can wait for approval, and hello calls are rate limited per IP.
+- **A reader is a terminal with `kind='device'`.** Phones are `kind='phone'`. Modes: phones `atm` or `presence`; readers `presence` (zone + in/out/toggle, as for phones) or `fixed`. The admin Terminals tab lists phones; the Readers tab lists readers.
+- **Fixed amount mode:** every tap grants the same number of points. Rules are per reader and apply per card (an empty cap means no limit): points per tap (default 10), seconds between taps (default 60), max taps per rolling 24 h, max points per rolling 24 h, max taps ever. Checks run in this order: ever, 24 h taps, 24 h points, then seconds between taps (so a person who has hit a daily limit hears "limit", not "wait"). Stornoed grants stop counting. A grant is a normal `give` transaction (`kind='fixed'`), so it can be stornoed in admin.
+- **Answers to the reader** (`POST /fixed/tap`, `POST /presence/tap`) always include the card balance after the action; the display shows it.
+- **Display:** idle dashes; while the server answers, lines fill each digit bottom, then middle, then top, left to right; then the digits roll to the balance and stay 3 s; balances above 9999 scroll. Words: `In`, `OUt`, `bLoc` (blocked), `FULL` (limit), `PAUS` (too soon), `nEt` (no network), `PEnd` (not approved), `----` blinking (unknown card), `Err`.
+
 ## Left to the builder
 Package names, exact file layout, DB column types, minor visual details not shown in the sketch, error copy for edge cases.
