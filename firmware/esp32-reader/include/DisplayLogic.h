@@ -97,14 +97,17 @@ struct Plan {
   bool blink;
 };
 
-/** The words for what a card tap did, as the server names it. */
-inline Plan planFor(const char* action) {
+/**
+ * The words for what a card tap did, as the server names it. In check-in mode ([checkInMode]) a balance follows
+ * only when someone signs out, which is when points are paid; a fixed-amount reader shows it after every grant.
+ */
+inline Plan planFor(const char* action, bool checkInMode = false) {
   struct Row { const char* action; Plan plan; };
   static const Row rows[] = {
     {"granted",      {"",     true,  Kind::Good,    false}},
-    {"in",           {"In",   true,  Kind::Good,    false}},
+    {"in",           {"In",   false, Kind::Good,    false}},    // signing in: the word only
     {"out",          {"OUt",  true,  Kind::Good,    false}},
-    {"expired_in",   {"In",   true,  Kind::Good,    false}},
+    {"expired_in",   {"In",   false, Kind::Good,    false}},
     {"expired_out",  {"OUt",  true,  Kind::Good,    false}},
     {"already_in",   {"In",   false, Kind::Refused, false}},
     {"not_in",       {"nOIn", false, Kind::Refused, false}},
@@ -113,7 +116,15 @@ inline Plan planFor(const char* action) {
     {"limit_points", {"FULL", true,  Kind::Refused, false}},
     {"limit_total",  {"FULL", true,  Kind::Refused, false}},
   };
-  if (action) for (const Row& r : rows) if (std::strcmp(r.action, action) == 0) return r.plan;
+  if (action) {
+    for (const Row& r : rows) {
+      if (std::strcmp(r.action, action) != 0) continue;
+      Plan plan = r.plan;
+      const bool signedOut = std::strcmp(action, "out") == 0 || std::strcmp(action, "expired_out") == 0;
+      if (checkInMode && !signedOut) plan.showBalance = false;
+      return plan;
+    }
+  }
   return {"Err", false, Kind::Error, false};
 }
 
@@ -150,6 +161,76 @@ inline const char* idleText(const char* status, bool online, bool rfidOk, const 
   if (std::strcmp(status, "denied") == 0) return "dEny";
   if (std::strcmp(status, "busy") == 0) return "bUSy";
   return "Err";
+}
+
+constexpr uint32_t WORD_MS = 2000;       // "In", "OUt", "PAUS" ... stay up this long
+constexpr uint32_t BALANCE_MS = 3000;    // the balance stays up this long
+constexpr uint32_t BLINK_ON_MS = 280, BLINK_OFF_MS = 180;
+constexpr uint32_t SCROLL_FIRST_MS = 900, SCROLL_STEP_MS = 550, SCROLL_LAST_MS = 2400;
+
+/**
+ * What the display shows next and for how long, without ever waiting: the main loop keeps reading cards and
+ * asks [tick] now and then. A new card calls [clear], so whatever is on show gives way at once.
+ */
+class StepQueue {
+ public:
+  void clear() { count_ = 0; head_ = 0; current_ = false; }
+
+  /** False when the queue is full. */
+  bool push(const uint8_t seg[4], uint32_t ms) {
+    if (count_ >= kCapacity) return false;
+    Step& s = steps_[(head_ + count_) % kCapacity];
+    std::memcpy(s.seg, seg, 4);
+    s.ms = ms;
+    count_++;
+    return true;
+  }
+
+  /** True, with the segments to draw, when the display should change now. */
+  bool tick(uint32_t nowMs, uint8_t out[4]) {
+    if (current_ && static_cast<uint32_t>(nowMs - since_) < ms_) return false;
+    if (count_ == 0) { current_ = false; return false; }
+    const Step& s = steps_[head_];
+    std::memcpy(out, s.seg, 4);
+    ms_ = s.ms;
+    since_ = nowMs;
+    current_ = true;
+    head_ = (head_ + 1) % kCapacity;
+    count_--;
+    return true;
+  }
+
+  /** Something is on show, or waiting to be. */
+  bool busy(uint32_t nowMs) const {
+    return count_ > 0 || (current_ && static_cast<uint32_t>(nowMs - since_) < ms_);
+  }
+
+ private:
+  static constexpr int kCapacity = 16;
+  struct Step { uint8_t seg[4]; uint32_t ms; };
+  Step steps_[kCapacity];
+  int head_ = 0, count_ = 0;
+  bool current_ = false;
+  uint32_t since_ = 0, ms_ = 0;
+};
+
+/** Lines up what a plan shows: its word (blinking for an unknown card), then the balance if the plan has one. */
+inline void queuePlan(StepQueue& q, const Plan& plan, long balance) {
+  uint8_t seg[4], blank[4] = {0, 0, 0, 0};
+  if (plan.word[0]) {
+    textToSegments(plan.word, seg);
+    if (plan.blink) for (int i = 0; i < 3; i++) { q.push(seg, BLINK_ON_MS); q.push(blank, BLINK_OFF_MS); }
+    else q.push(seg, WORD_MS);
+  }
+  if (!plan.showBalance || balance < 0) return;
+  if (fitsOnDisplay(balance)) { numberToSegments(balance, seg); q.push(seg, BALANCE_MS); return; }
+  char digits[24];
+  std::snprintf(digits, sizeof digits, "%ld", balance);
+  const int positions = scrollPositions(static_cast<int>(std::strlen(digits)));
+  for (int p = 0; p < positions; p++) {
+    scrollFrame(digits, p, seg);
+    q.push(seg, p == positions - 1 ? SCROLL_LAST_MS : (p == 0 ? SCROLL_FIRST_MS : SCROLL_STEP_MS));
+  }
 }
 
 }  // namespace reader

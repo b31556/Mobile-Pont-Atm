@@ -87,7 +87,7 @@ static void testUid() {
 static void testPlans() {
   struct Case { const char* action; const char* word; bool balance; };
   const Case cases[] = {
-    {"granted", "", true}, {"in", "In", true}, {"out", "OUt", true}, {"expired_in", "In", true}, {"expired_out", "OUt", true},
+    {"granted", "", true}, {"in", "In", false}, {"out", "OUt", true}, {"expired_in", "In", false}, {"expired_out", "OUt", true},
     {"already_in", "In", false}, {"not_in", "nOIn", false},
     {"cooldown", "PAUS", true}, {"limit_uses", "FULL", true}, {"limit_points", "FULL", true}, {"limit_total", "FULL", true},   // too soon / limit: the balance follows
   };
@@ -110,6 +110,85 @@ static void testPlans() {
   // every word fits the display and is drawable (no blank letters inside a word)
   const char* words[] = {"In", "OUt", "nOIn", "PAUS", "FULL", "Err", "----", "bLoc", "nEt", "PEnd", "OFF", "dEny", "bUSy"};
   for (const char* w : words) { CHECK(std::strlen(w) <= 4); for (const char* q = w; *q; q++) CHECK(glyph(*q) != 0); }
+}
+
+static void testCheckInPlans() {
+  // in check-in mode a balance follows only when someone signs out (that is when points are paid)
+  CHECK(!planFor("in", true).showBalance); CHECK(!planFor("expired_in", true).showBalance);
+  CHECK(planFor("out", true).showBalance); CHECK(planFor("expired_out", true).showBalance);
+  CHECK(!planFor("cooldown", true).showBalance); CHECK(!planFor("already_in", true).showBalance); CHECK(!planFor("not_in", true).showBalance);
+  CHECK(std::strcmp(planFor("cooldown", true).word, "PAUS") == 0);
+  // fixed-amount mode still shows the balance after a grant, and after "too soon" or a limit
+  CHECK(planFor("granted", false).showBalance); CHECK(planFor("cooldown", false).showBalance); CHECK(planFor("limit_uses", false).showBalance);
+  CHECK(planFor("cooldown").showBalance);                              // the default is fixed-amount mode
+}
+
+static void testQueue() {
+  StepQueue q;
+  uint8_t seg[4], a[4] = {1, 1, 1, 1}, b[4] = {2, 2, 2, 2};
+  CHECK(!q.busy(0)); CHECK(!q.tick(0, seg));
+  CHECK(q.push(a, 100)); CHECK(q.push(b, 200));
+  CHECK(q.busy(0));
+  CHECK(q.tick(0, seg) && seg[0] == 1);                                // first step shows at once
+  CHECK(!q.tick(50, seg)); CHECK(q.busy(50));
+  CHECK(q.tick(100, seg) && seg[0] == 2);                              // the next one as soon as the first has had its time
+  CHECK(!q.tick(299, seg)); CHECK(q.busy(299));
+  CHECK(!q.busy(300)); CHECK(!q.tick(300, seg));                       // finished: nothing more to draw, not busy
+  // a new card arrives while something is on show: the display is free at once
+  q.clear(); CHECK(q.push(a, 5000)); CHECK(q.tick(1000, seg)); CHECK(q.busy(1500));
+  q.clear(); CHECK(!q.busy(1501)); CHECK(!q.tick(1501, seg));
+  CHECK(q.push(b, 100)); CHECK(q.tick(1502, seg) && seg[0] == 2);     // and the next thing shows straight away
+  // a full queue says so instead of losing steps silently
+  q.clear();
+  int accepted = 0; for (int i = 0; i < 100; i++) if (q.push(a, 10)) accepted++;
+  CHECK(accepted >= 12); CHECK(accepted < 100);
+  // the clock wraps around after about 49 days; the schedule must not notice
+  q.clear(); CHECK(q.push(a, 100)); CHECK(q.push(b, 100));
+  const uint32_t near = 0xFFFFFFF0u;
+  CHECK(q.tick(near, seg) && seg[0] == 1);
+  CHECK(!q.tick(near + 50, seg));
+  CHECK(q.tick(near + 100, seg) && seg[0] == 2);                       // wrapped past zero here
+  CHECK(q.busy(near + 150)); CHECK(!q.busy(near + 200));
+}
+
+static int stepCount(StepQueue& q, uint32_t* total, uint8_t first[4]) {
+  int n = 0; uint32_t sum = 0; uint32_t now = 0; uint8_t seg[4];
+  while (q.busy(now) && n < 100) {
+    if (q.tick(now, seg)) { if (n == 0) std::memcpy(first, seg, 4); n++; }
+    now += 10;
+  }
+  *total = now; (void)sum;
+  return n;
+}
+
+static void testQueuePlan() {
+  StepQueue q; uint8_t first[4], want[4]; uint32_t total;
+  // a grant: the balance, for three seconds
+  queuePlan(q, planFor("granted"), 56);
+  CHECK(stepCount(q, &total, first) == 1); numberToSegments(56, want); CHECK(std::memcmp(first, want, 4) == 0);
+  CHECK(total >= BALANCE_MS && total < BALANCE_MS + 30);
+  // signing in: only the word, and for a bit longer than before
+  q.clear(); queuePlan(q, planFor("in", true), 120);
+  CHECK(stepCount(q, &total, first) == 1); textToSegments("In", want); CHECK(std::memcmp(first, want, 4) == 0);
+  CHECK(total >= WORD_MS && total < WORD_MS + 30); CHECK(WORD_MS >= 2000);
+  // signing out: the word, then the balance
+  q.clear(); queuePlan(q, planFor("out", true), 70);
+  CHECK(stepCount(q, &total, first) == 2); CHECK(total >= WORD_MS + BALANCE_MS);
+  // too soon in fixed-amount mode: the word, then the balance; in check-in mode just the word
+  q.clear(); queuePlan(q, planFor("cooldown", false), 56); CHECK(stepCount(q, &total, first) == 2);
+  q.clear(); queuePlan(q, planFor("cooldown", true), 56);  CHECK(stepCount(q, &total, first) == 1);
+  // a balance is never shown when the plan has none, whatever number is passed
+  q.clear(); queuePlan(q, planFor("not_in", true), 999); CHECK(stepCount(q, &total, first) == 1);
+  // an unknown card blinks three times
+  q.clear(); queuePlan(q, planForHttp(404, "unknown_card"), 0); CHECK(stepCount(q, &total, first) == 6);
+  // a number wider than the display scrolls: one step per window, the last held longer
+  q.clear(); queuePlan(q, planFor("granted"), 123456); CHECK(stepCount(q, &total, first) == scrollPositions(6));
+  textToSegments("1234", want); CHECK(std::memcmp(first, want, 4) == 0);
+  // an error shows its word and no balance
+  q.clear(); queuePlan(q, planForHttp(0, nullptr), 50); CHECK(stepCount(q, &total, first) == 1); textToSegments("nEt", want); CHECK(std::memcmp(first, want, 4) == 0);
+  // a queue that was busy is replaced, not appended to
+  q.clear(); queuePlan(q, planFor("out", true), 70); q.clear(); queuePlan(q, planFor("in", true), 70);
+  CHECK(stepCount(q, &total, first) == 1);
 }
 
 static void testPairCode() {
@@ -144,7 +223,7 @@ static void testIdle() {
 }
 
 int main() {
-  testGlyphs(); testText(); testNumbers(); testProgress(); testScroll(); testUid(); testPlans(); testPairCode(); testIdle();
+  testGlyphs(); testText(); testNumbers(); testProgress(); testScroll(); testUid(); testPlans(); testPairCode(); testIdle(); testCheckInPlans(); testQueue(); testQueuePlan();
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures ? 1 : 0;
 }
