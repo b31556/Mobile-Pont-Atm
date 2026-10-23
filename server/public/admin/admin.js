@@ -5,7 +5,7 @@ const root = document.getElementById('root');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (s, r = document) => r.querySelector(s);
 
-const state = { page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [], zones: [], zoneId: null };
+const state = { page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [], zones: [], zoneId: null, devices: [] };
 let token = null;
 try { token = sessionStorage.getItem('pont-token'); } catch {}
 
@@ -69,12 +69,13 @@ async function load() {
   const p = state.page;
   state.suggestions = await api('GET', '/card-suggestions');
   state.zones = await api('GET', '/zones');
+  state.devices = await api('GET', '/devices');
   if (!state.zones.some(z => z.id === state.zoneId)) state.zoneId = state.zones[0]?.id ?? null;
   if (p === 'cards') {
     const [cards, tx] = await Promise.all([api('GET', '/cards?q=' + encodeURIComponent(state.q)), api('GET', '/transactions?limit=200')]);
     const all = state.q ? await api('GET', '/cards') : cards;
     state.data = { cards, all, tx };
-  } else if (p === 'terminals') state.data = { terminals: await api('GET', '/terminals') };
+  } else if (p === 'terminals' || p === 'readers') state.data = { terminals: await api('GET', '/terminals') };
   else if (p === 'txns') state.data = { tx: await api('GET', '/transactions?limit=100') };
   else if (p === 'presence') {
     state.data = { sessions: await api('GET', '/presence/sessions') };
@@ -96,9 +97,9 @@ function loginView() {
 }
 
 function shell(inner) {
-  const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id}">${l}${id === 'cards' && state.suggestions.length ? `<span class="badge" title="Suggested cards">${state.suggestions.length}</span>` : ''}</button>`;
+  const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id}">${l}${id === 'cards' && state.suggestions.length ? `<span class="badge" title="Suggested cards">${state.suggestions.length}</span>` : ''}${id === 'readers' && state.devices.some(d => d.status === 'pending') ? `<span class="badge" title="Waiting for approval">${state.devices.filter(d => d.status === 'pending').length}</span>` : ''}</button>`;
   return `<div class="adm"><aside class="side"><div class="brand"><span class="coin">P</span>Pont admin</div>
-    ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('presence', 'Check-in')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
+    ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('readers', 'Readers')}${item('presence', 'Check-in')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
     <div class="me"><button data-act="signout">Sign out</button></div></aside>
     <div class="pane">${inner}</div></div>${state.drawer ? drawerView() : ''}${state.modal ? modalView() : ''}
     ${state.toast ? `<div class="atoast" role="status">${esc(state.toast)}</div>` : ''}`;
@@ -214,8 +215,49 @@ function refreshPreview() {
   }, 150);
 }
 
+const FIXED_FIELDS = [
+  ['amount', 'Points per tap', 'min="1"', ''],
+  ['cooldownSeconds', 'Seconds between taps', 'min="0"', 'Per card. 0 = no wait'],
+  ['maxUses24h', 'Max taps per 24 hours', 'min="1" placeholder="No limit"', 'Per card'],
+  ['maxPoints24h', 'Max points per 24 hours', 'min="1" placeholder="No limit"', 'Per card'],
+  ['maxUsesTotal', 'Max taps ever', 'min="1" placeholder="No limit"', 'Per card, for good'],
+];
+
+function readersPane() {
+  const devices = state.devices || [];
+  const terminals = (state.data.terminals || []).filter(t => t.kind === 'device');
+  const pending = devices.filter(d => d.status === 'pending');
+  const revoked = devices.filter(d => d.status === 'revoked');
+  const deviceOf = t => devices.find(d => d.terminal && d.terminal.id === t.id);
+  const waiting = pending.length ? `<section class="suggest" aria-label="Waiting for approval"><h2>Waiting for approval <span class="badge">${pending.length}</span></h2>
+    <p>These readers found the server by themselves. Approve the ones you recognise (check the address).</p>
+    ${pending.map(d => `<form class="srow" data-approve="${esc(d.id)}"><code class="mono uid">${esc(d.id)}</code>
+      <span class="swhen">${esc(d.ip || '?')} · firmware ${esc(d.firmware || '?')} · ${d.online ? 'online' : 'last seen ' + esc(when(d.lastSeen))}</span>
+      <input name="name" class="search" placeholder="Name, e.g. Entrance" required maxlength="60" aria-label="Name for ${esc(d.id)}" style="min-width:150px">
+      <select name="mode" class="modesel" aria-label="Mode"><option value="fixed">Fixed amount</option><option value="presence">Check-in</option></select>
+      <span class="rowbtns"><button class="btn green sm">Approve</button><button class="btn line sm" type="button" data-act="rejectdevice" data-id="${esc(d.id)}">Reject</button></span></form>`).join('')}</section>` : '';
+  const cards = terminals.length ? terminals.map(t => {
+    const d = deviceOf(t);
+    const online = d?.online;
+    const f = t.fixed;
+    const config = t.mode === 'fixed'
+      ? `<form class="fixedform" data-reader="${t.id}"><div class="grid3">${FIXED_FIELDS.map(([k, label, attrs, hint]) => `<label class="field"><span>${label}</span><input name="${k}" type="number" step="1" value="${f[k] ?? ''}" ${attrs}>${hint ? `<small>${hint}</small>` : ''}</label>`).join('')}</div>
+          <p class="err" role="alert"></p><button class="btn green sm">Save rules</button></form>`
+      : `<div class="pointsel inline-sel"><label class="field"><span>Zone</span><select class="modesel" data-zone-for="${t.id}">${state.zones.map(z => `<option value="${z.id}"${z.id === t.zoneId ? ' selected' : ''}>${esc(z.name)}</option>`).join('')}</select></label>
+          <label class="field"><span>Point type</span><select class="modesel" data-dir-for="${t.id}"><option value="toggle"${t.direction === 'toggle' ? ' selected' : ''}>Toggle (in / out)</option><option value="in"${t.direction === 'in' ? ' selected' : ''}>Sign in only</option><option value="out"${t.direction === 'out' ? ' selected' : ''}>Sign out only</option></select></label></div>
+          <p class="hint">The rules of the zone are edited under Check-in.</p>`;
+    return `<section class="panel reader"><div class="rhead"><div><h2>${esc(t.name)}</h2><p class="hint">${esc(t.ip || d?.ip || 'no address yet')} · firmware ${esc(t.firmware || d?.firmware || '?')} · ${online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline' + (d ? ', seen ' + esc(when(d.lastSeen)) : '') + '</span>'}</p></div>
+        <span class="sp"></span><div class="rowbtns"><label class="field modefield"><span>Mode</span><select class="modesel" data-rmode-for="${t.id}"><option value="fixed"${t.mode === 'fixed' ? ' selected' : ''}>Fixed amount</option><option value="presence"${t.mode === 'presence' ? ' selected' : ''}>Check-in</option></select></label>
+        <button class="btn line sm" data-act="revokedevice" data-id="${esc(d?.id || '')}" data-name="${esc(t.name)}">Revoke</button></div></div>
+      ${config}<p class="hint">Given today: <b>${t.givenToday}</b> points</p></section>`;
+  }).join('') : '<p class="empty">No readers yet. Power one on with the firmware set to this server and it will show up above.</p>';
+  const gone = revoked.length ? `<h2 class="sect">Revoked</h2><div class="tw"><table><tbody>${revoked.map(d => `<tr><td class="mono">${esc(d.id)}</td><td>${esc(d.ip || '')}</td><td><button class="btn line sm" data-act="rejectdevice" data-id="${esc(d.id)}">Forget</button></td></tr>`).join('')}</tbody></table></div>` : '';
+  return `<div class="ph"><div><h1>Readers</h1><p>ESP32 card readers on your network. Each one gives a fixed number of points per tap, or signs people in and out.</p></div><span class="sp"></span><button class="btn line" data-act="refresh">Refresh</button></div>
+    ${waiting}<div class="readers">${cards}</div>${gone}`;
+}
+
 function terminalsPane() {
-  const list = state.data.terminals || [];
+  const list = (state.data.terminals || []).filter(t => t.kind !== 'device');
   return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. In ATM mode it gives points for an amount. In Check-in mode it signs people in and out: pick its zone (which decides the rules) and whether it signs in, signs out, or toggles. A phone follows a mode change within about 30 seconds.</p></div><span class="sp"></span>
     <button class="btn green" data-act="newterm">Pair a phone</button></div>
     <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Mode</th><th>Check-in point</th><th>Phone</th><th>App</th><th>Given today</th><th></th></tr></thead><tbody>
@@ -297,6 +339,9 @@ function modalView() {
   if (m.kind === 'delzone') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
     <h2>Delete ${esc(m.name)}?</h2><p style="color:var(--ink-2)">A zone that terminals use, or that has visit history, can’t be deleted.</p>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn red" style="flex:1;justify-content:center" data-act="dodelzone" data-id="${m.id}">Delete</button></div></div></div>`;
+  if (m.kind === 'revokedev') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
+    <h2>Revoke ${esc(m.name)}?</h2><p style="color:var(--ink-2)">The reader is cut off at once. To use it again, forget it here and let it register again.</p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn red" style="flex:1;justify-content:center" data-act="dorevokedev" data-id="${esc(m.id)}">Revoke</button></div></div></div>`;
   if (m.kind === 'revoke') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
     <h2>Revoke ${esc(m.name)}?</h2><p style="color:var(--ink-2)">The phone is signed out and can’t sign in again until it is paired with a new code.</p>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn red" style="flex:1;justify-content:center" data-act="dorevoke" data-id="${m.id}">Revoke</button></div></div></div>`;
@@ -315,7 +360,7 @@ function modalView() {
 function render() {
   const focus = document.activeElement?.id, pos = document.activeElement?.selectionStart;
   if (!token) { root.innerHTML = loginView(); return; }
-  const pane = { cards: cardsPane, terminals: terminalsPane, presence: presencePane, txns: txnsPane, staff: staffPane }[state.page]();
+  const pane = { cards: cardsPane, terminals: terminalsPane, readers: readersPane, presence: presencePane, txns: txnsPane, staff: staffPane }[state.page]();
   root.innerHTML = shell(pane);
   if (focus === 'q') { const q = $('#q'); q.focus(); q.setSelectionRange(pos, pos); }
   loadPhotos();
@@ -340,6 +385,16 @@ root.addEventListener('submit', async e => {
     const err = document.getElementById('r-err'); err.textContent = '';
     try { await api('PUT', '/zones/' + state.zoneId, { name: document.getElementById('r-name').value, settings: draftRules() }); await refresh(); toast('Zone saved.'); }
     catch (ex) { err.textContent = ex.message; }
+  } else if (f.dataset.approve) {
+    const fd = new FormData(f);
+    await guard(async () => { await api('POST', `/devices/${encodeURIComponent(f.dataset.approve)}/approve`, { name: fd.get('name'), mode: fd.get('mode') }); await refresh(); toast('Reader approved.'); });
+  } else if (f.dataset.reader) {
+    const fd = new FormData(f), num = k => { const v = String(fd.get(k) ?? '').trim(); return v === '' ? null : Number(v); };
+    const err = f.querySelector('.err'); err.textContent = '';
+    try {
+      await api('PATCH', '/terminals/' + f.dataset.reader, { fixed: { amount: num('amount'), cooldownSeconds: num('cooldownSeconds'), maxUses24h: num('maxUses24h'), maxPoints24h: num('maxPoints24h'), maxUsesTotal: num('maxUsesTotal') } });
+      await refresh(); toast('Rules saved.');
+    } catch (ex) { err.textContent = ex.message; }
   } else if (f.id === 'zoneform') {
     const fd = new FormData(f), from = state.zones.find(z => z.id === state.zoneId);
     try { const z = await api('POST', '/zones', { name: fd.get('name'), settings: from?.settings }); state.zoneId = z.id; state.modal = null; await refresh(); toast('Zone added.'); }
@@ -368,6 +423,9 @@ root.addEventListener('change', async e => {
   if (e.target.dataset && (e.target.dataset.zoneFor || e.target.dataset.dirFor)) {
     const id = e.target.dataset.zoneFor || e.target.dataset.dirFor;
     await guard(async () => { await api('PATCH', '/terminals/' + id, e.target.dataset.zoneFor ? { zoneId: e.target.value } : { direction: e.target.value }); await refresh(); toast('Saved.'); });
+  }
+  if (e.target.dataset && e.target.dataset.rmodeFor) {
+    await guard(async () => { await api('PATCH', '/terminals/' + e.target.dataset.rmodeFor, { mode: e.target.value }); await refresh(); toast('Mode changed. The reader follows within 30 seconds.'); });
   }
   if (e.target.dataset && e.target.dataset.modeFor) {
     await guard(async () => { const t = await api('PATCH', '/terminals/' + e.target.dataset.modeFor, { mode: e.target.value }); await refresh(); toast(t.name + ' is now in ' + (t.mode === 'presence' ? 'Check-in' : 'ATM') + ' mode.'); });
@@ -414,6 +472,9 @@ root.addEventListener('click', async e => {
       } catch (ex) { err.textContent = ex.message; }
       break; }
     case 'refresh': await refresh(); break;
+    case 'rejectdevice': await guard(async () => { await api('DELETE', '/devices/' + encodeURIComponent(id)); await refresh(); toast('Removed.'); }); break;
+    case 'revokedevice': state.modal = { kind: 'revokedev', id, name: el.dataset.name }; render(); break;
+    case 'dorevokedev': state.modal = null; render(); await guard(async () => { await api('DELETE', '/devices/' + encodeURIComponent(id)); await refresh(); toast('Reader revoked.'); }); break;
     case 'pickzone': state.zoneId = id; render(); break;
     case 'newzone': state.modal = { kind: 'newzone', from: state.zones.find(z => z.id === state.zoneId)?.name || 'this zone' }; render(); break;
     case 'delzone': state.modal = { kind: 'delzone', id, name: el.dataset.name }; render(); break;
