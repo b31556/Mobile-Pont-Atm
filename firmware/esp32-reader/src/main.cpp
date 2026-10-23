@@ -37,7 +37,7 @@
 static const char* FIRMWARE = "1.0.0";
 static const uint32_t HELLO_EVERY_MS = 30000;          // approved readers check in this often
 static const uint32_t HELLO_PENDING_EVERY_MS = 4000;   // waiting readers ask faster, so approval shows up quickly
-static const uint32_t SAME_CARD_PAUSE_MS = 3000;
+static const uint32_t SAME_CARD_PAUSE_MS = 1000;       // the same card read again this soon after a tap is ignored
 static const uint8_t BRIGHT_ACTIVE = 7, BRIGHT_IDLE = 2;
 
 MFRC522 rfid(PIN_RFID_SS, PIN_RFID_RST);
@@ -52,6 +52,8 @@ bool rfidOk = true;
 uint32_t lastRfidCheckMs = 0;
 char lastUid[32] = "";
 uint32_t lastTapEndMs = 0;
+reader::StepQueue steps;             // what the display shows next; it never blocks, so cards keep being read
+bool idleShown = false;
 
 // ---------------------------------------------------------------- display
 
@@ -78,38 +80,24 @@ void showProgress(int step) {
   showSegments(seg);
 }
 
-void blinkText(const char* text, int times) {
-  for (int i = 0; i < times; i++) {
-    showText(text); delay(280);
-    showText("    "); delay(180);
-  }
-}
-
-/** The balance, shown straight away. Numbers wider than the display scroll across. */
-void showBalance(long balance) {
-  if (reader::fitsOnDisplay(balance)) {
-    showNumber(balance);
-    delay(3000);
-    return;
-  }
-  char digits[16];
-  snprintf(digits, sizeof digits, "%ld", balance);
-  const int positions = reader::scrollPositions(static_cast<int>(strlen(digits)));
-  for (int p = 0; p < positions; p++) {
-    uint8_t seg[4];
-    reader::scrollFrame(digits, p, seg);
-    showSegments(seg);
-    delay(p == 0 ? 900 : 550);
-  }
-  delay(1800);
-}
-
 /** What the display shows while nothing is happening (the rules are in DisplayLogic.h and are tested there). */
 void showIdle() {
   const bool online = WiFi.status() == WL_CONNECTED && serverReachable;
   const char* text = reader::idleText(status.c_str(), online, rfidOk, pairCode.c_str());
   showText(text);
   setBrightness(strcmp(text, "----") == 0 ? BRIGHT_IDLE : BRIGHT_ACTIVE);
+  idleShown = true;
+}
+
+/**
+ * Called all the time from loop(): moves the display on to its next step when the time is up, and back to the
+ * idle text when there are none left. A tap clears the steps, so a new card can be read at any moment.
+ */
+void tickDisplay() {
+  const uint32_t now = millis();
+  uint8_t seg[4];
+  if (steps.tick(now, seg)) { setBrightness(BRIGHT_ACTIVE); showSegments(seg); idleShown = false; }
+  else if (!steps.busy(now) && !idleShown) showIdle();
 }
 
 // ---------------------------------------------------------------- server
@@ -179,21 +167,22 @@ void present(int httpStatus, const String& answer) {
   JsonDocument doc;
   const bool parsed = httpStatus > 0 && !deserializeJson(doc, answer);
   reader::Plan plan = (httpStatus == 200 && parsed)
-      ? reader::planFor(doc["action"] | "")
+      ? reader::planFor(doc["action"] | "", mode == "presence")
       : reader::planForHttp(httpStatus, parsed ? (doc["code"] | "") : nullptr);
   if (httpStatus == 401) { token = ""; prefs.remove("token"); status = "pending"; lastHelloMs = 0; }   // not accepted any more: ask again
   if (httpStatus == 409) lastHelloMs = 0;                                                            // the mode was changed in admin: learn the new one now
   Serial.printf("tap answer: HTTP %d -> %s\n", httpStatus, plan.word);
 
-  if (plan.word[0]) { if (plan.blink) blinkText(plan.word, 3); else { showText(plan.word); delay(plan.showBalance ? 800 : 1500); } }
-  if (plan.showBalance && parsed) showBalance(doc["card"]["balance"] | 0L);
+  reader::queuePlan(steps, plan, parsed ? (doc["card"]["balance"] | -1L) : -1L);
 }
 
 String makeKey() { return hex32().substring(0, 16) + String(millis(), HEX); }
 
 /** A card was read: send it and show the answer as fast as it arrives. */
 void handleCard(const char* uid) {
+  steps.clear();                           // whatever was on show gives way to this card at once
   setBrightness(BRIGHT_ACTIVE);
+  idleShown = false;
   showProgress(1);                         // card read
   JsonDocument out;
   out["cardUid"] = uid;
@@ -209,7 +198,7 @@ void handleCard(const char* uid) {
   serverReachable = code > 0;
   showProgress(reader::PROGRESS_STEPS);    // answer understood: the bar is full, the result follows at once
   present(code, answer);
-  showIdle();
+  tickDisplay();                           // the first step of the result goes up now; the rest follows from loop()
   strncpy(lastUid, uid, sizeof lastUid - 1);
   lastTapEndMs = millis();
 }
@@ -223,9 +212,9 @@ bool rfidPresent() {
 
 void checkRfid() {
   lastRfidCheckMs = millis();
-  if (rfidPresent()) { if (!rfidOk) { rfidOk = true; showIdle(); } return; }
+  if (rfidPresent()) { if (!rfidOk) { rfidOk = true; idleShown = false; } return; }
   rfid.PCD_Init();                         // the chip stopped answering (power dip?): start it again
-  if (!rfidPresent()) { if (rfidOk) { rfidOk = false; Serial.println("MFRC522 not answering. Check the wiring."); showIdle(); } }
+  if (!rfidPresent()) { if (rfidOk) { rfidOk = false; Serial.println("MFRC522 not answering. Check the wiring."); idleShown = false; } }
 }
 
 /** Returns true and fills [uid] when a card has just been presented. */
@@ -311,9 +300,10 @@ void loop() {
     const String before = status;
     const bool wasReachable = serverReachable;
     sayHello();
-    if (before != status || wasReachable != serverReachable || status == "pending") showIdle();
+    if ((before != status || wasReachable != serverReachable || status == "pending") && !steps.busy(millis())) showIdle();
   }
   if (now - lastRfidCheckMs > 10000) checkRfid();
+  tickDisplay();
 
   if (status == "approved" && token.length() && rfidOk) {
     char uid[32];

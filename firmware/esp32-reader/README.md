@@ -75,8 +75,11 @@ If the code on the display and the one in admin don't match, don't approve it: i
 |---|---|
 | `----` | Ready. Tap a card. |
 | a line in the middle of digit 1, then 2, 3, 4 | Working on your tap. One line per stage: card read, request sent, answer arriving, answer understood. It is as fast as the server, with no waiting added |
-| your balance | The result (numbers above 9999 scroll across), for about 3 seconds |
-| `In` / `OUt` | Signed in / signed out (then your balance) |
+| your balance | The result of a fixed-amount tap (numbers above 9999 scroll across), for about 3 seconds |
+| `In` | Signed in. Just the word, for 2 seconds: no balance |
+| `OUt` | Signed out: the word for 2 seconds, then your balance for 3 |
+
+Nothing on the display ever blocks the reader: tap the next card while a word or a balance is still showing and it replaces the display at once.
 | `PAUS` | Too soon since your last tap (then your balance) |
 | `FULL` | Limit reached: taps or points per day, or total (then your balance) |
 | `nOIn` | Not signed in (at a sign-out point) |

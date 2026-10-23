@@ -82,3 +82,5 @@ Notes / failures:
 - [ ] Revoke the reader in admin: `OFF` within 30 seconds; Forget it, restart the reader: a new code appears
 - [ ] Power-cycle the reader: it comes back approved without a new code
 - [ ] Reader and card reader stay reliable for several minutes of taps (no random `Err`)
+- [ ] While a balance (fixed amount) or `In` / `OUt` is still on the display, tap a different card: the display switches to the new card's bar and result at once, with no waiting
+- [ ] Check-in: signing in shows only `In` for about 2 seconds, with no balance; signing out shows `OUt` for 2 seconds, then the balance
