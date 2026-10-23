@@ -256,12 +256,12 @@ function readersPane() {
         <button class="btn line sm" data-act="revokedevice" data-id="${esc(d?.id || '')}" data-name="${esc(t.name)}">Revoke</button></div></div>
       ${config}<p class="hint">Given today: <b>${t.givenToday}</b> points</p>
       <div class="displaylink"><span class="lbl">Display page</span>
-        <input readonly value="${esc(location.origin + t.displayPath)}" aria-label="Display page link for ${esc(t.name)}" onclick="this.select()">
-        <a class="btn line sm" href="${esc(t.displayPath)}" target="_blank" rel="noopener">Open</a>
-        <button class="btn line sm" data-act="copylink" data-path="${esc(t.displayPath)}">Copy link</button>
-        <button class="btn line sm" data-act="newlink" data-id="${t.id}" data-name="${esc(t.name)}">New link</button>
+        <span class="codebox" title="Type this code at the address below">${esc(t.displayCode)}</span>
+        <button class="btn line sm" data-act="copycode" data-code="${esc(t.displayCode)}">Copy code</button>
+        <button class="btn line sm" data-act="newcode2" data-id="${t.id}" data-name="${esc(t.name)}">New code</button>
+        <a class="btn line sm" href="/display" target="_blank" rel="noopener">Open the display page</a>
         <label class="cbox"><input type="checkbox" data-beep-for="${t.id}"${t.displayBeep ? ' checked' : ''}> Beep on the display</label>
-        <p class="hint">Open it on a screen next to the reader. Anyone with the link sees who taps (photo, name, points), so don’t post it publicly. On another device use this computer’s network address instead of “${esc(location.hostname)}”.</p></div></section>`;
+        <p class="hint">On the screen next to the reader, go to <b>${esc(location.origin)}/display</b> and type the code. The screen then stays signed in until you press New code or revoke the reader. Anyone who knows the code can watch who taps (photo, name, points), so don’t post it publicly. On another device use this computer’s network address instead of “${esc(location.hostname)}”.</p></div></section>`;
   }).join('') : '<p class="empty">No readers yet. Power one on with the firmware set to this server and it will show up above.</p>';
   const gone = revoked.length ? `<h2 class="sect">Revoked</h2><div class="tw"><table><tbody>${revoked.map(d => `<tr><td class="mono">${esc(d.id)}</td><td>${esc(d.ip || '')}</td><td><button class="btn line sm" data-act="rejectdevice" data-id="${esc(d.id)}">Forget</button></td></tr>`).join('')}</tbody></table></div>` : '';
   return `<div class="ph"><div><h1>Readers</h1><p>ESP32 card readers on your network. Each one gives a fixed number of points per tap, or signs people in and out.</p></div><span class="sp"></span><button class="btn line" data-act="refresh">Refresh</button></div>
@@ -351,9 +351,9 @@ function modalView() {
   if (m.kind === 'delzone') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
     <h2>Delete ${esc(m.name)}?</h2><p style="color:var(--ink-2)">A zone that terminals use, or that has visit history, can’t be deleted.</p>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn red" style="flex:1;justify-content:center" data-act="dodelzone" data-id="${m.id}">Delete</button></div></div></div>`;
-  if (m.kind === 'newlink') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
-    <h2>New display link for ${esc(m.name)}?</h2><p style="color:var(--ink-2)">The current link stops working at once. Screens that have it open show “no longer valid” until you open the new link on them.</p>
-    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn green" style="flex:1;justify-content:center" data-act="donewlink" data-id="${esc(m.id)}">Make a new link</button></div></div></div>`;
+  if (m.kind === 'newcode2') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
+    <h2>New display code for ${esc(m.name)}?</h2><p style="color:var(--ink-2)">The current code stops working at once and every screen signed in with it is signed out. You then type the new code on each screen.</p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn green" style="flex:1;justify-content:center" data-act="donewcode" data-id="${esc(m.id)}">Make a new code</button></div></div></div>`;
   if (m.kind === 'revokedev') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
     <h2>Revoke ${esc(m.name)}?</h2><p style="color:var(--ink-2)">The reader is cut off at once. To use it again, forget it here and let it register again.</p>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn red" style="flex:1;justify-content:center" data-act="dorevokedev" data-id="${esc(m.id)}">Revoke</button></div></div></div>`;
@@ -490,9 +490,9 @@ root.addEventListener('click', async e => {
       } catch (ex) { err.textContent = ex.message; }
       break; }
     case 'refresh': await refresh(); break;
-    case 'copylink': toast((await copyText(location.origin + el.dataset.path)) ? 'Link copied.' : 'Could not copy. Select the link and copy it by hand.'); break;
-    case 'newlink': state.modal = { kind: 'newlink', id, name: el.dataset.name }; render(); break;
-    case 'donewlink': state.modal = null; render(); await guard(async () => { await api('POST', `/terminals/${id}/display-link`); await refresh(); toast('New link made. The old one no longer works.'); }); break;
+    case 'copycode': toast((await copyText(el.dataset.code)) ? 'Code copied.' : 'Could not copy. Select the code and copy it by hand.'); break;
+    case 'newcode2': state.modal = { kind: 'newcode2', id, name: el.dataset.name }; render(); break;
+    case 'donewcode': state.modal = null; render(); await guard(async () => { await api('POST', `/terminals/${id}/display-code`); await refresh(); toast('New code made. Screens with the old one are signed out.'); }); break;
     case 'rejectdevice': await guard(async () => { await api('DELETE', '/devices/' + encodeURIComponent(id)); await refresh(); toast('Removed.'); }); break;
     case 'revokedevice': state.modal = { kind: 'revokedev', id, name: el.dataset.name }; render(); break;
     case 'dorevokedev': state.modal = null; render(); await guard(async () => { await api('DELETE', '/devices/' + encodeURIComponent(id)); await refresh(); toast('Reader revoked.'); }); break;

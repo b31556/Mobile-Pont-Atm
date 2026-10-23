@@ -86,11 +86,12 @@ Notes / failures:
 - [ ] Check-in: signing in shows only `In` for about 2 seconds, with no balance; signing out shows `OUt` for 2 seconds, then the balance
 
 ## Display pages
-- [ ] In admin (Readers), press Open: a page with the reader's name and "Tap your card", and "Live" at the top right
+- [ ] In admin (Readers) each reader shows a 6-digit code. On a screen, open `/display` (this computer's network address, not localhost): it asks for the code, and the address never shows it
+- [ ] A wrong code says so; the right code opens the reader's page (name, "Tap your card", "Live"). Reload the page and restart the browser: it is still signed in
 - [ ] Tap a card on the reader: the page switches at once to the photo, name, headline and (fixed amount: after a grant; check-in: after signing out) the balance; after 6 seconds it returns to "Tap your card"
 - [ ] Tapping a second card while the first is still shown replaces it immediately
 - [ ] Signing in shows no balance; an unregistered card shows "Card not registered" with no name or photo; a blocked card shows its name and "Card is blocked"
 - [ ] Switch "Beep on the display" on: the page asks for one click, then beeps (a rising pair for a grant or sign-out, one short beep for sign-in, three low beeps for a refusal). Switch it off in admin: the page goes quiet within 30 seconds
-- [ ] Open the link on another device on the network (use this computer's address, not localhost)
 - [ ] Unplug the server's network or restart the server: the page shows "Reconnecting…" and comes back by itself
-- [ ] Press New link: the old page shows "This link is no longer valid"
+- [ ] Press New code: the open screen shows the code form again ("This screen was signed out"), and the old code is refused
+- [ ] Ten wrong codes in a row from one device lock it out for a while

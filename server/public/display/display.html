@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Tap your card</title>
+<title>Reader display</title>
 <link rel="stylesheet" href="/display-assets/display.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
     <span id="live" class="live" data-ok="false">Connecting…</span>
   </header>
 
-  <section id="idle" class="idle">
+  <section id="idle" class="idle" hidden>
     <div class="rings" aria-hidden="true"><i></i><i></i><i></i></div>
     <h1>Tap your card</h1>
     <p id="idle-sub"></p>
@@ -28,12 +28,18 @@
     <p id="balance" class="balance" hidden></p>
   </section>
 
-  <section id="gone" class="idle" hidden>
-    <h1>This link is no longer valid</h1>
-    <p>Ask an admin for the reader’s current display link.</p>
+  <section id="entry" class="idle" hidden>
+    <h1>Enter the code</h1>
+    <p>Each reader has a 6-digit code. An admin finds it under Readers in the admin site.</p>
+    <form id="entry-form" class="entry" autocomplete="off">
+      <input id="code" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-label="6-digit code" placeholder="······">
+      <button type="submit">Open</button>
+    </form>
+    <p id="entry-note" class="note" role="alert"></p>
   </section>
 
   <footer>
+    <button id="leave" type="button" class="quiet" hidden>Use a different reader</button>
     <button id="sound" type="button" hidden></button>
   </footer>
 </main>
