@@ -25,7 +25,7 @@ export function registerCharges(app: FastifyInstance) {
     if (prior) {
       const card = db.prepare('select * from cards where id=?').get(prior.card_id) as CardRow;
       if (card.uid !== uid || prior.amount !== amount) throw new Refusal(409, 'key_reused', 'That idempotency key was used for a different charge');
-      return { tx: prior, card, before: prior.balance_after - prior.amount };
+      return { tx: prior, card, before: prior.balance_after - prior.amount, replayed: true };
     }
     const card = findCardByUid(db, uid);
     if (!card) throw new Refusal(404, 'unknown_card', 'Card not registered');
@@ -35,7 +35,7 @@ export function registerCharges(app: FastifyInstance) {
     const after = card.balance + amount;
     const id = db.prepare(`insert into transactions(card_id,amount,type,status,terminal_id,operator_id,idempotency_key,created_at,balance_after)
       values(?,?,'give','ok',?,?,?,?,?)`).run(card.id, amount, terminalId, operatorId, key, now, after).lastInsertRowid;
-    return { tx: db.prepare('select * from transactions where id=?').get(id) as TxRow, card: { ...card, balance: after, last_used: now } as CardRow, before: card.balance };
+    return { tx: db.prepare('select * from transactions where id=?').get(id) as TxRow, card: { ...card, balance: after, last_used: now } as CardRow, before: card.balance, replayed: false };
   });
 
   const storno = db.transaction((id: number, user: { id: string; role: string; terminalId?: string; viaTerminal?: boolean }) => {
@@ -71,7 +71,7 @@ export function registerCharges(app: FastifyInstance) {
     if (!uid) return reply.code(404).send({ error: 'Card not registered', code: 'unknown_card' });
     const r = charge(req.user.terminalId!, req.user.viaTerminal ? null : req.user.id, uid, b.amount, b.idempotencyKey);
     const answer = { transaction: txJson(r.tx), card: cardInfo(r.card, r.before) };
-    publishTap(app, req.user.terminalId, 'atm', { status: 200, body: answer });
+    if (!r.replayed) publishTap(app, req.user.terminalId, 'atm', { status: 200, body: answer });
     return answer;
   });
 

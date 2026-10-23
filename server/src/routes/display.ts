@@ -41,7 +41,11 @@ export function registerDisplay(app: FastifyInstance, dataDir: string) {
     name: t.name, mode: t.mode, kind: t.kind, direction: t.direction, zoneName: t.zone_id ? getZone(db, t.zone_id)?.name ?? null : null,
     beep: !!t.display_beep, last: hub.last(t.id),
   });
-  const closed = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow' };
+  const closed = {
+    'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer',
+    'content-security-policy': "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  };
+  app.addHook('preClose', async () => hub.closeStreams());   // open screens must not hold up a shutdown: hang them up before the server waits for connections
 
   app.get('/display/:key', async (req, reply) => {
     if (!find((req.params as { key: string }).key)) return reply.code(404).send({ error: 'Not found' });
@@ -74,6 +78,7 @@ export function registerDisplay(app: FastifyInstance, dataDir: string) {
     send('hello', stateOf(t));
     const off = hub.subscribe(t.id, e => send('tap', e));
     const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), KEEP_ALIVE_MS);
-    req.raw.on('close', () => { clearInterval(keepAlive); off(); });
+    const forget = hub.addStream(t.id, () => res.end());     // a new link or a revoked reader hangs this up
+    req.raw.on('close', () => { clearInterval(keepAlive); off(); forget(); });
   });
 }

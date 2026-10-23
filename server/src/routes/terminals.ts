@@ -95,6 +95,7 @@ export function registerTerminals(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     if (!db.prepare('select 1 from terminals where id=? and active=1').get(id)) return reply.code(404).send({ error: 'Terminal not found' });
     db.prepare('update terminals set display_token=NULL where id=?').run(id);
+    app.displayHub.closeStreams(id);
     return { displayPath: displayPathFor(db, id) };
   });
 
@@ -102,7 +103,8 @@ export function registerTerminals(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const r = db.prepare('update terminals set active=0 where id=?').run(id);
     if (!r.changes) return reply.code(404).send({ error: 'Terminal not found' });
-    db.prepare("update devices set status='revoked' where terminal_id=? and status='approved'").run(id);   // a reader is cut off in the list at once
+    db.prepare("update devices set status='revoked' where terminal_id=? and status='approved'").run(id);
+    app.displayHub.closeStreams(id);   // a reader is cut off in the list at once
     db.prepare('delete from pairing_codes where terminal_id=?').run(id);
     return { ok: true };
   });

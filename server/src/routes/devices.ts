@@ -71,6 +71,7 @@ export function registerDevices(app: FastifyInstance) {
     const t = db.prepare('select id,name,mode,active from terminals where id=?').get(row.terminal_id ?? '') as { id: string; name: string; mode: string; active: number } | undefined;
     if (!t || !t.active) {
       db.prepare("update devices set status='revoked' where id=?").run(row.id);
+      if (row.terminal_id) app.displayHub.closeStreams(row.terminal_id);
       return { status: 'revoked' };
     }
     db.prepare('update terminals set last_seen=? where id=?').run(now, t.id);
@@ -122,6 +123,7 @@ export function registerDevices(app: FastifyInstance) {
         if (row.terminal_id) db.prepare('update terminals set active=0 where id=?').run(row.terminal_id);
         db.prepare("update devices set status='revoked' where id=?").run(id);
       })();
+      if (row.terminal_id) app.displayHub.closeStreams(row.terminal_id);
     } else {
       db.prepare('delete from devices where id=?').run(id);   // a waiting one is rejected, a revoked one forgotten
     }
