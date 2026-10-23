@@ -3,6 +3,7 @@ import type { Db } from '../db.js';
 import { stamp } from '../clock.js';
 import { normalizeUid } from '../uid.js';
 import { findCardByUid, type CardRow } from './cards.js';
+import { publishTap } from './display.js';
 import { recordSuggestion } from './suggestions.js';
 import { computePoints, createZone, defaultZone, getZone, listZones, updateZone, validateSettings, DEFAULT_SETTINGS, type Zone } from '../presence.js';
 
@@ -129,6 +130,7 @@ export function registerPresence(app: FastifyInstance) {
       return reply.code(400).send({ error: 'idempotencyKey is required', code: 'bad_request' });
     }
     const r = tap(req.user.terminalId!, b.cardUid ?? '', b.idempotencyKey);
+    publishTap(app, req.user.terminalId, 'presence', r);
     return reply.code(r.status).send(r.body);
   });
 

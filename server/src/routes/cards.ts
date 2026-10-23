@@ -27,6 +27,17 @@ function sniffImage(b: Buffer): 'image/jpeg' | 'image/png' | 'image/webp' | null
   return null;
 }
 
+/** The picture to show for a card: the uploaded photo, or the generated placeholder. Null if there is no such card. */
+export function cardPhoto(db: Db, dataDir: string, cardId: string): { type: string; data: Buffer | string } | null {
+  const card = db.prepare('select * from cards where id=?').get(cardId) as CardRow | undefined;
+  if (!card) return null;
+  if (card.photo_path) {
+    const data = readFileSync(join(dataDir, card.photo_path));
+    return { type: sniffImage(data) ?? 'application/octet-stream', data };
+  }
+  return { type: 'image/svg+xml', data: avatarSvg(card.photo_style) };
+}
+
 export function registerCards(app: FastifyInstance, dataDir: string) {
   const db = app.db;
   const get = (id: string) => db.prepare('select * from cards where id=?').get(id) as CardRow | undefined;
@@ -116,13 +127,8 @@ export function registerCards(app: FastifyInstance, dataDir: string) {
   });
 
   app.get('/cards/:id/photo', { preHandler: app.requireStaff }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const card = get(id);
-    if (!card) return reply.code(404).send({ error: 'Card not found' });
-    if (card.photo_path) {
-      const data = readFileSync(join(dataDir, card.photo_path));
-      return reply.type(sniffImage(data) ?? 'application/octet-stream').header('cache-control', 'private, max-age=300').send(data);
-    }
-    return reply.type('image/svg+xml').header('cache-control', 'private, max-age=300').send(avatarSvg(card.photo_style));
+    const photo = cardPhoto(db, dataDir, (req.params as { id: string }).id);
+    if (!photo) return reply.code(404).send({ error: 'Card not found' });
+    return reply.type(photo.type).header('cache-control', 'private, max-age=300').send(photo.data);
   });
 }

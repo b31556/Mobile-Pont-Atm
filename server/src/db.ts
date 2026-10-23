@@ -16,7 +16,7 @@ create table if not exists terminals(
   active integer not null default 1, last_seen text, app_version text, device text,
   instant_preset integer not null default 1, last_operator text, presets_saved integer not null default 0,
   mode text not null default 'atm', zone_id text references zones(id), direction text not null default 'toggle',
-  kind text not null default 'phone',
+  kind text not null default 'phone', display_token text, display_beep integer not null default 0,
   fixed_amount integer not null default 10, fixed_cooldown_seconds integer not null default 60,
   fixed_max_uses_24h integer, fixed_max_points_24h integer, fixed_max_uses_total integer
 );
@@ -115,6 +115,9 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'devices', 'denied_count', 'integer not null default 0');
   ensureColumn(db, 'devices', 'denied_ip', 'text');
   ensureColumn(db, 'devices', 'denied_at', 'text');
+  ensureColumn(db, 'terminals', 'display_token', 'text');
+  ensureColumn(db, 'terminals', 'display_beep', 'integer not null default 0');
+  db.exec('create unique index if not exists terminals_display_token on terminals(display_token) where display_token is not null');
   ensureDefaultZone(db);
   return db;
 }

@@ -84,3 +84,13 @@ Notes / failures:
 - [ ] Reader and card reader stay reliable for several minutes of taps (no random `Err`)
 - [ ] While a balance (fixed amount) or `In` / `OUt` is still on the display, tap a different card: the display switches to the new card's bar and result at once, with no waiting
 - [ ] Check-in: signing in shows only `In` for about 2 seconds, with no balance; signing out shows `OUt` for 2 seconds, then the balance
+
+## Display pages
+- [ ] In admin (Readers), press Open: a page with the reader's name and "Tap your card", and "Live" at the top right
+- [ ] Tap a card on the reader: the page switches at once to the photo, name, headline and (fixed amount: after a grant; check-in: after signing out) the balance; after 6 seconds it returns to "Tap your card"
+- [ ] Tapping a second card while the first is still shown replaces it immediately
+- [ ] Signing in shows no balance; an unregistered card shows "Card not registered" with no name or photo; a blocked card shows its name and "Card is blocked"
+- [ ] Switch "Beep on the display" on: the page asks for one click, then beeps (a rising pair for a grant or sign-out, one short beep for sign-in, three low beeps for a refusal). Switch it off in admin: the page goes quiet within 30 seconds
+- [ ] Open the link on another device on the network (use this computer's address, not localhost)
+- [ ] Unplug the server's network or restart the server: the page shows "Reconnecting…" and comes back by itself
+- [ ] Press New link: the old page shows "This link is no longer valid"

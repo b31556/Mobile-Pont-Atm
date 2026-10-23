@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { stamp } from '../clock.js';
 import { normalizeUid } from '../uid.js';
 import { cardJson, findCardByUid, type CardRow } from './cards.js';
+import { publishTap } from './display.js';
 
 interface TxRow {
   id: number; card_id: string; amount: number; type: 'give' | 'storno'; status: 'ok' | 'stornoed';
@@ -69,7 +70,9 @@ export function registerCharges(app: FastifyInstance) {
     const uid = normalizeUid(b.cardUid ?? '');
     if (!uid) return reply.code(404).send({ error: 'Card not registered', code: 'unknown_card' });
     const r = charge(req.user.terminalId!, req.user.viaTerminal ? null : req.user.id, uid, b.amount, b.idempotencyKey);
-    return { transaction: txJson(r.tx), card: cardInfo(r.card, r.before) };
+    const answer = { transaction: txJson(r.tx), card: cardInfo(r.card, r.before) };
+    publishTap(app, req.user.terminalId, 'atm', { status: 200, body: answer });
+    return answer;
   });
 
   app.get('/transactions', { preHandler: app.requireStaff }, async req => {

@@ -80,6 +80,15 @@ Good to know: a visit is paid by the rules of the zone where it began, whichever
 
 `firmware/esp32-reader/` has the firmware for a small reader (ESP32 DevKit V1 + MFRC522 + 4-digit display) with wiring, flashing steps and what the display shows. The reader finds the server on your network and shows a 4-digit code until you approve it on the admin **Readers** tab (the same code is listed there). Then you set it to **Fixed amount** (every tap gives X points, with per-card limits: seconds between taps, taps and points per 24 hours, taps ever) or **Check-in** (zone and sign-in / sign-out / toggle). Fixed-amount grants appear in Transactions and can be stornoed like any other.
 
+## Display pages (a screen next to a reader)
+
+Every terminal has its own **display page**: a web page for a tablet or monitor next to the reader that shows each tap live, with the photo, name, a headline ("+10 points", "Checked in", "Too soon", "Card is blocked"), details and the balance. It returns to "Tap your card" after 6 seconds, and a new tap replaces it at once. In admin, open **Readers**: each reader shows its display link with **Open**, **Copy link** and **New link** (the old link stops working at once), and a **Beep on the display** switch. Phones have an **Display page** button in the Terminals table.
+
+- Open the link in the browser of the screen. Use this computer's network address, not `localhost`, on another device (like `http://192.168.x.x:3000/display/...`).
+- Browsers only allow sound after a click: if the beep is switched on, the page shows "Click here once to allow sound". Its button then toggles sound on that screen.
+- The link has no login: the long random key is the protection. Anyone with it sees who taps (photo, name, points) as it happens, and nothing else; it can only show photos of cards that tapped on that reader in the last hour. If a link is shared too widely, press **New link**.
+- `?hold=15` on the link keeps each result on screen for 15 seconds (1 to 60) instead of 6.
+
 ## Behavior worth knowing
 
 - A charge carries a one-time key. If the connection drops and the operator taps again, the server returns the original result instead of crediting twice.
