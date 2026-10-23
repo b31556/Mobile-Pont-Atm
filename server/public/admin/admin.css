@@ -132,3 +132,12 @@ body{min-height:100vh}
 .zonechip[aria-pressed=true]{box-shadow:0 0 0 2px var(--green) inset;background:#F1FAF4}
 .pointsel{display:grid;gap:6px}
 .formbtns{display:flex;gap:10px;flex-wrap:wrap}
+
+.readers{display:grid;gap:16px;margin-top:6px}
+.reader .rhead{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.reader .rhead h2{margin:0}
+.reader .hint{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:8px}
+.modefield{min-width:150px}
+.inline-sel{display:flex;gap:14px;flex-wrap:wrap}
+.inline-sel .field{min-width:200px}
