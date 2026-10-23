@@ -22,6 +22,7 @@ export class DisplayHub {
   private seq = 0;
   private subs = new Map<string, Set<(e: DisplayEvent) => void>>();
   private events = new Map<string, { event: DisplayEvent; atMs: number }[]>();
+  private streams = new Map<string, Set<() => void>>();
   constructor(private now: () => number = Date.now) {}
 
   publish(terminalId: string, e: NewEvent): DisplayEvent {
@@ -39,6 +40,23 @@ export class DisplayHub {
     set.add(fn);
     this.subs.set(terminalId, set);
     return () => { set.delete(fn); if (!set.size) this.subs.delete(terminalId); };
+  }
+
+  /** Remembers how to hang up an open live connection, so a new link or a revoked reader can cut it off. */
+  addStream(terminalId: string, close: () => void): () => void {
+    const set = this.streams.get(terminalId) ?? new Set();
+    set.add(close);
+    this.streams.set(terminalId, set);
+    return () => { set.delete(close); if (!set.size) this.streams.delete(terminalId); };
+  }
+
+  /** Hangs up the open connections of one terminal, or of all when none is named (shutdown). */
+  closeStreams(terminalId?: string): void {
+    const ids = terminalId ? [terminalId] : [...this.streams.keys()];
+    for (const id of ids) {
+      for (const close of [...(this.streams.get(id) ?? [])]) { try { close(); } catch { /* already gone */ } }
+      this.streams.delete(id);
+    }
   }
 
   count(terminalId: string): number { return this.subs.get(terminalId)?.size ?? 0; }

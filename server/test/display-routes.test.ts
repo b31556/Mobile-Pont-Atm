@@ -247,3 +247,114 @@ describe('the live stream', () => {
     await app.close();
   });
 });
+
+describe('cutting a screen off', () => {
+  async function open(app: any, path: string) {
+    const base = app.server.listening ? `http://127.0.0.1:${(app.server.address() as { port: number }).port}` : await app.listen({ port: 0, host: '127.0.0.1' });
+    const ctrl = new AbortController();
+    const res = await fetch(base + path, { signal: ctrl.signal });
+    const reader = res.body!.getReader();
+    const dec = new TextDecoder();
+    let text = '';
+    const read = async (ms: number) => {   // returns true once the server has ended the stream
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        const r = await Promise.race([reader.read(), new Promise<{ done: false; value: undefined }>(r2 => setTimeout(() => r2({ done: false, value: undefined }), 150))]);
+        if (r.done) return true;
+        if (r.value) text += dec.decode(r.value);
+      }
+      return false;
+    };
+    return { read, text: () => text, close: () => ctrl.abort(), base };
+  }
+
+  it('a new link ends the streams that were open on the old one at once', async () => {
+    const { app, adminToken, reader, tokenOf } = await setup();
+    const alone = app.displayHub.count(reader.terminalId);      // the test's own listener counts as one
+    const s = await open(app, `/display/${await tokenOf()}/events`);
+    expect(await s.read(300)).toBe(false);
+    expect(s.text()).toContain('event: hello');
+    expect(app.displayHub.count(reader.terminalId)).toBe(alone + 1);
+    await app.inject({ method: 'POST', url: `/terminals/${reader.terminalId}/display-link`, headers: auth(adminToken) });
+    expect(await s.read(2000)).toBe(true);
+    await new Promise(r => setTimeout(r, 200));
+    expect(app.displayHub.count(reader.terminalId)).toBe(alone);
+    s.close(); await app.close();
+  });
+
+  it('revoking the reader ends its streams, whichever way it is revoked', async () => {
+    const { app, adminToken, reader, tokenOf } = await setup();
+    const a = await open(app, `/display/${await tokenOf()}/events`);
+    await a.read(200);
+    await app.inject({ method: 'DELETE', url: `/devices/${encodeURIComponent(reader.deviceId)}`, headers: auth(adminToken) });
+    expect(await a.read(2000)).toBe(true);
+    a.close();
+    const other = await makeReader(app, adminToken, { name: 'Second' });
+    const info = ((await app.inject({ method: 'GET', url: '/terminals', headers: auth(adminToken) })).json() as any[]).find(t => t.id === other.terminalId);
+    const b = await open(app, `${info.displayPath}/events`);
+    await b.read(200);
+    await app.inject({ method: 'DELETE', url: `/terminals/${other.terminalId}`, headers: auth(adminToken) });
+    expect(await b.read(2000)).toBe(true);
+    b.close(); await app.close();
+  });
+
+  it('shutting the server down is not held up by screens that are still open', async () => {
+    const { app, tokenOf } = await setup();
+    const s = await open(app, `/display/${await tokenOf()}/events`);
+    await s.read(200);
+    const closed = await Promise.race([app.close().then(() => true), new Promise<boolean>(r => setTimeout(() => r(false), 3000))]);
+    expect(closed).toBe(true);
+    s.close();
+  });
+});
+
+describe('a tap that is sent twice is shown once', () => {
+  it('a repeated fixed-amount key does not replay the screen or the beep', async () => {
+    const { app, reader, events } = await setup();
+    const send = () => app.inject({ method: 'POST', url: '/fixed/tap', headers: auth(reader.terminalToken), payload: { cardUid: UID, idempotencyKey: 'same' } });
+    await send(); await send();
+    expect(events).toHaveLength(1);
+  });
+
+  it('a repeated charge key on a phone, and a repeated check-in key, likewise', async () => {
+    const { app, db, adminToken } = await setup();
+    const op = await makeOperator(app, db, 'eszter@pont.example', 'Bar 2');
+    const seen: DisplayEvent[] = [];
+    app.displayHub.subscribe(op.terminalId, e => seen.push(e));
+    const charge = () => app.inject({ method: 'POST', url: '/charges', headers: auth(op.token), payload: { cardUid: UID, amount: 8, idempotencyKey: 'a' } });
+    await charge(); await charge();
+    expect(seen).toHaveLength(1);
+    const door = await makeReader(app, adminToken, { name: 'Door', mode: 'presence' });
+    const got: DisplayEvent[] = [];
+    app.displayHub.subscribe(door.terminalId, e => got.push(e));
+    const checkIn = () => app.inject({ method: 'POST', url: '/presence/tap', headers: auth(door.terminalToken), payload: { cardUid: UID, idempotencyKey: 'in1' } });
+    await checkIn(); await checkIn();
+    expect(got).toHaveLength(1);
+  });
+
+  it('a new tap with a new key is of course shown', async () => {
+    const { app, reader, events } = await setup();
+    const send = (k: string) => app.inject({ method: 'POST', url: '/fixed/tap', headers: auth(reader.terminalToken), payload: { cardUid: UID, idempotencyKey: k } });
+    await send('one'); await send('two');
+    expect(events).toHaveLength(2);
+  });
+});
+
+describe('hardening', () => {
+  it('the page carries a strict content policy and sends no referrer', async () => {
+    const { app, tokenOf } = await setup();
+    const page = await app.inject({ method: 'GET', url: `/display/${await tokenOf()}` });
+    expect(page.headers['referrer-policy']).toBe('no-referrer');
+    expect(page.headers['content-security-policy']).toContain("default-src 'self'");
+    expect(page.headers['content-security-policy']).toContain("script-src 'self'");
+  });
+
+  it('a photo file that has gone missing shows the placeholder, not an error', async () => {
+    const { app, db, anna, tap, tokenOf } = await setup();
+    await tap();
+    db.prepare("update cards set photo_path='photos/missing-file' where id=?").run(anna.id);
+    const res = await app.inject({ method: 'GET', url: `/display/${await tokenOf()}/photo/${anna.id}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('image/svg+xml');
+  });
+});

@@ -6,7 +6,7 @@ import { findCardByUid, type CardRow } from './cards.js';
 import { publishTap } from './display.js';
 import { recordSuggestion } from './suggestions.js';
 
-type Reply = { status: number; body: object };
+type Reply = { status: number; body: object; replayed?: boolean };
 const DAY_MS = 24 * 3600 * 1000;
 
 export function fixedOf(t: Record<string, unknown>): FixedSettings {
@@ -47,7 +47,7 @@ export function registerFixed(app: FastifyInstance) {
     const prior = db.prepare("select * from transactions where terminal_id=? and idempotency_key=? and kind='fixed'").get(terminalId, key) as { card_id: string; amount: number; balance_after: number } | undefined;
     if (prior) {
       const card = db.prepare('select * from cards where id=?').get(prior.card_id) as CardRow;
-      return view('granted', { ...card, balance: prior.balance_after }, settings, statsFor(card.id, terminalId, Date.now()), { points: prior.amount, balanceBefore: prior.balance_after - prior.amount });
+      return { ...view('granted', { ...card, balance: prior.balance_after }, settings, statsFor(card.id, terminalId, Date.now()), { points: prior.amount, balanceBefore: prior.balance_after - prior.amount }), replayed: true };
     }
 
     const uid = normalizeUid(uidInput);
@@ -79,7 +79,7 @@ export function registerFixed(app: FastifyInstance) {
       return reply.code(400).send({ error: 'idempotencyKey is required', code: 'bad_request' });
     }
     const r = tap(req.user.terminalId!, b.cardUid ?? '', b.idempotencyKey);
-    publishTap(app, req.user.terminalId, 'fixed', r);
+    if (!r.replayed) publishTap(app, req.user.terminalId, 'fixed', r);   // a retried tap must not replay the screen or the beep
     return reply.code(r.status).send(r.body);
   });
 }

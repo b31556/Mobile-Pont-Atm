@@ -32,8 +32,10 @@ export function cardPhoto(db: Db, dataDir: string, cardId: string): { type: stri
   const card = db.prepare('select * from cards where id=?').get(cardId) as CardRow | undefined;
   if (!card) return null;
   if (card.photo_path) {
-    const data = readFileSync(join(dataDir, card.photo_path));
-    return { type: sniffImage(data) ?? 'application/octet-stream', data };
+    try {
+      const data = readFileSync(join(dataDir, card.photo_path));
+      return { type: sniffImage(data) ?? 'application/octet-stream', data };
+    } catch { /* the file has gone missing: show the placeholder instead of an error */ }
   }
   return { type: 'image/svg+xml', data: avatarSvg(card.photo_style) };
 }

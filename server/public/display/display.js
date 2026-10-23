@@ -113,23 +113,42 @@
   /* ---------- the live connection ---------- */
   const live = $('live');
   const setLive = ok => { live.dataset.ok = String(ok); live.textContent = ok ? 'Live' : 'Reconnecting…'; };
+  let es = null, retryTimer = null;
+
+  // The server answers 404 to a link that was replaced or a reader that was removed: stop trying then.
+  function linkGone() {
+    if (es) es.close();
+    clearTimeout(retryTimer); clearTimeout(holdTimer);
+    stage.dataset.state = 'idle';
+    idle.hidden = true; result.hidden = true; gone.hidden = false; live.hidden = true; $('sound').hidden = true;
+    document.title = 'This link is no longer valid';
+  }
 
   function connect() {
-    const es = new EventSource(`/display/${encodeURIComponent(key)}/events`);
+    clearTimeout(retryTimer);
+    es = new EventSource(`/display/${encodeURIComponent(key)}/events`);
     es.addEventListener('hello', ev => { setLive(true); setReader(JSON.parse(ev.data)); });
     es.addEventListener('tap', ev => show(JSON.parse(ev.data)));
     es.onerror = () => {
       setLive(false);
-      // the server answers 404 to a link that was replaced or a reader that was removed: stop trying then
-      fetch(`/display/${encodeURIComponent(key)}/state`, { cache: 'no-store' }).then(r => {
-        if (r.status === 404) { es.close(); clearTimeout(holdTimer); stage.dataset.state = 'idle'; idle.hidden = true; result.hidden = true; gone.hidden = false; live.hidden = true; }
-      }).catch(() => {});
+      const source = es;
+      const giveUpOrRetry = () => {
+        // After a network blip the browser retries by itself. After an error answer (a 429 or a proxy's 503) it
+        // gives up for good, so a wall screen must start a new connection itself.
+        if (source === es && source.readyState === EventSource.CLOSED) { clearTimeout(retryTimer); retryTimer = setTimeout(connect, 5000); }
+      };
+      fetch(`/display/${encodeURIComponent(key)}/state`, { cache: 'no-store' })
+        .then(r => { if (r.status === 404) linkGone(); else giveUpOrRetry(); })
+        .catch(giveUpOrRetry);
     };
   }
 
-  // the admin may switch the beep on or off, or rename the reader, while the page is open
+  // The admin may switch the beep on or off, or rename the reader, while the page is open; a dead link is noticed here too.
   setInterval(() => {
-    fetch(`/display/${encodeURIComponent(key)}/state`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(s => { if (s) setReader(s); }).catch(() => {});
+    fetch(`/display/${encodeURIComponent(key)}/state`, { cache: 'no-store' })
+      .then(r => r.status === 404 ? (linkGone(), null) : r.ok ? r.json() : null)
+      .then(s => { if (s) setReader(s); })
+      .catch(() => {});
   }, 30000);
 
   showIdle();

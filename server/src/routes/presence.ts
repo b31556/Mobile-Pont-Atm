@@ -13,7 +13,7 @@ interface SessionRow {
   capped_by: string | null; day_total: number; balance_after: number | null; status: string; tx_id: number | null;
 }
 interface TerminalRow { mode: string; zone_id: string | null; direction: 'in' | 'out' | 'toggle' }
-type Reply = { status: number; body: object };
+type Reply = { status: number; body: object; replayed?: boolean };
 const photoUrl = (cardId: string) => `/cards/${cardId}/photo`;
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -79,11 +79,14 @@ export function registerPresence(app: FastifyInstance) {
 
     // The same tap arriving twice (a lost reply, then a retry) must give the same answer and change nothing.
     const byIn = db.prepare('select * from presence_sessions where in_terminal=? and in_key=?').get(terminalId, key) as SessionRow | undefined;
-    if (byIn) return view(byIn.expired_minutes !== null ? 'expired_in' : 'in', byIn, cardById(byIn.card_id), zoneOf(byIn), byIn.expired_minutes !== null ? { expiredMinutes: byIn.expired_minutes } : {});
+    if (byIn) return { ...view(byIn.expired_minutes !== null ? 'expired_in' : 'in', byIn, cardById(byIn.card_id), zoneOf(byIn), byIn.expired_minutes !== null ? { expiredMinutes: byIn.expired_minutes } : {}), replayed: true };
     const byOut = db.prepare('select * from presence_sessions where out_terminal=? and out_key=?').get(terminalId, key) as SessionRow | undefined;
-    if (byOut) return byOut.status === 'expired'
-      ? view('expired_out', byOut, cardById(byOut.card_id), zoneOf(byOut), { expiredMinutes: byOut.minutes })
-      : view('out', byOut, cardById(byOut.card_id), zoneOf(byOut));
+    if (byOut) return {
+      ...(byOut.status === 'expired'
+        ? view('expired_out', byOut, cardById(byOut.card_id), zoneOf(byOut), { expiredMinutes: byOut.minutes })
+        : view('out', byOut, cardById(byOut.card_id), zoneOf(byOut))),
+      replayed: true,
+    };
 
     const uid = normalizeUid(uidInput);
     const card = uid ? findCardByUid(db, uid) : undefined;
@@ -130,7 +133,7 @@ export function registerPresence(app: FastifyInstance) {
       return reply.code(400).send({ error: 'idempotencyKey is required', code: 'bad_request' });
     }
     const r = tap(req.user.terminalId!, b.cardUid ?? '', b.idempotencyKey);
-    publishTap(app, req.user.terminalId, 'presence', r);
+    if (!r.replayed) publishTap(app, req.user.terminalId, 'presence', r);
     return reply.code(r.status).send(r.body);
   });
 
