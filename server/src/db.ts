@@ -71,7 +71,7 @@ create table if not exists devices(
   id text primary key, secret_hash text not null,
   status text not null check(status in ('pending','approved','revoked')),
   terminal_id text references terminals(id), ip text, firmware text, first_seen text not null, last_seen text not null,
-  pair_code text
+  pair_code text, denied_count integer not null default 0, denied_ip text, denied_at text
 );
 create table if not exists presets(
   terminal_id text not null references terminals(id), value integer not null,
@@ -112,6 +112,9 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'terminals', 'fixed_max_points_24h', 'integer');
   ensureColumn(db, 'terminals', 'fixed_max_uses_total', 'integer');
   ensureColumn(db, 'devices', 'pair_code', 'text');
+  ensureColumn(db, 'devices', 'denied_count', 'integer not null default 0');
+  ensureColumn(db, 'devices', 'denied_ip', 'text');
+  ensureColumn(db, 'devices', 'denied_at', 'text');
   ensureDefaultZone(db);
   return db;
 }

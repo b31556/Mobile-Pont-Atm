@@ -223,6 +223,11 @@ const FIXED_FIELDS = [
   ['maxUsesTotal', 'Max taps ever', 'min="1" placeholder="No limit"', 'Per card, for good'],
 ];
 
+/** Someone used this reader's id with a different secret: either the reader was reset, or something is imitating it. */
+function warnDenied(d) {
+  return d && d.denied ? `<br><span class="warnline">⚠ ${d.denied.count} attempt${d.denied.count === 1 ? '' : 's'} to use this id with a different secret, last from ${esc(d.denied.ip || '?')}. If the reader was reset, forget it and let it register again; otherwise something is imitating it.</span>` : '';
+}
+
 function readersPane() {
   const devices = state.devices || [];
   const terminals = (state.data.terminals || []).filter(t => t.kind === 'device');
@@ -230,9 +235,9 @@ function readersPane() {
   const revoked = devices.filter(d => d.status === 'revoked');
   const deviceOf = t => devices.find(d => d.terminal && d.terminal.id === t.id);
   const waiting = pending.length ? `<section class="suggest" aria-label="Waiting for approval"><h2>Waiting for approval <span class="badge">${pending.length}</span></h2>
-    <p>These readers found the server by themselves. Each one shows a 4-digit code on its display: approve the one whose code matches.</p>
+    <p>These readers found the server by themselves. Each one shows a 4-digit code on its display: approve the one whose code matches. A reader that is still switched on registers again within seconds if you reject it, and waiting readers that go quiet are dropped after 15 minutes.${pending.length >= 20 ? ' <b>The limit of 20 waiting readers is reached, so new ones can’t register until you approve or reject some.</b>' : ''}</p>
     ${pending.map(d => `<form class="srow" data-approve="${esc(d.id)}"><span class="paircode" title="This code is on the reader's display">${esc(d.code || '----')}</span><code class="mono uid">${esc(d.id)}</code>
-      <span class="swhen">${esc(d.ip || '?')} · firmware ${esc(d.firmware || '?')} · ${d.online ? 'online' : 'last seen ' + esc(when(d.lastSeen))}</span>
+      <span class="swhen">${esc(d.ip || '?')} · firmware ${esc(d.firmware || '?')} · ${d.online ? 'online' : 'last seen ' + esc(when(d.lastSeen))}${warnDenied(d)}</span>
       <input name="name" class="search" placeholder="Name, e.g. Entrance" required maxlength="60" aria-label="Name for ${esc(d.id)}" style="min-width:150px">
       <select name="mode" class="modesel" aria-label="Mode"><option value="fixed">Fixed amount</option><option value="presence">Check-in</option></select>
       <span class="rowbtns"><button class="btn green sm">Approve</button><button class="btn line sm" type="button" data-act="rejectdevice" data-id="${esc(d.id)}">Reject</button></span></form>`).join('')}</section>` : '';
@@ -246,7 +251,7 @@ function readersPane() {
       : `<div class="pointsel inline-sel"><label class="field"><span>Zone</span><select class="modesel" data-zone-for="${t.id}">${state.zones.map(z => `<option value="${z.id}"${z.id === t.zoneId ? ' selected' : ''}>${esc(z.name)}</option>`).join('')}</select></label>
           <label class="field"><span>Point type</span><select class="modesel" data-dir-for="${t.id}"><option value="toggle"${t.direction === 'toggle' ? ' selected' : ''}>Toggle (in / out)</option><option value="in"${t.direction === 'in' ? ' selected' : ''}>Sign in only</option><option value="out"${t.direction === 'out' ? ' selected' : ''}>Sign out only</option></select></label></div>
           <p class="hint">The rules of the zone are edited under Check-in.</p>`;
-    return `<section class="panel reader"><div class="rhead"><div><h2>${esc(t.name)}</h2><p class="hint">${esc(t.ip || d?.ip || 'no address yet')} · firmware ${esc(t.firmware || d?.firmware || '?')} · ${online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline' + (d ? ', seen ' + esc(when(d.lastSeen)) : '') + '</span>'}</p></div>
+    return `<section class="panel reader"><div class="rhead"><div><h2>${esc(t.name)}</h2><p class="hint">${esc(t.ip || d?.ip || 'no address yet')}${warnDenied(d)} · firmware ${esc(t.firmware || d?.firmware || '?')} · ${online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline' + (d ? ', seen ' + esc(when(d.lastSeen)) : '') + '</span>'}</p></div>
         <span class="sp"></span><div class="rowbtns"><label class="field modefield"><span>Mode</span><select class="modesel" data-rmode-for="${t.id}"><option value="fixed"${t.mode === 'fixed' ? ' selected' : ''}>Fixed amount</option><option value="presence"${t.mode === 'presence' ? ' selected' : ''}>Check-in</option></select></label>
         <button class="btn line sm" data-act="revokedevice" data-id="${esc(d?.id || '')}" data-name="${esc(t.name)}">Revoke</button></div></div>
       ${config}<p class="hint">Given today: <b>${t.givenToday}</b> points</p></section>`;
