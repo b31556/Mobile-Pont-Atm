@@ -3,7 +3,7 @@
 // It joins WiFi, introduces itself to the server (POST /device/hello) and waits to be approved in the admin
 // site, showing a 4-digit code on its display meanwhile. Once approved it works as the admin has set it up:
 // a fixed-amount reader (everybody who taps gets the same points) or a check-in point (sign in / out).
-// While the server answers a tap, lines fill the display; then it rolls to the card's balance.
+// While a tap is read and answered a four-step bar fills the display (a line per digit); then it shows the balance.
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
@@ -37,14 +37,12 @@
 static const char* FIRMWARE = "1.0.0";
 static const uint32_t HELLO_EVERY_MS = 30000;          // approved readers check in this often
 static const uint32_t HELLO_PENDING_EVERY_MS = 4000;   // waiting readers ask faster, so approval shows up quickly
-static const uint32_t MIN_LOADING_MS = 900;            // one full fill of the lines, so the animation is always seen
 static const uint32_t SAME_CARD_PAUSE_MS = 3000;
 static const uint8_t BRIGHT_ACTIVE = 7, BRIGHT_IDLE = 2;
 
 MFRC522 rfid(PIN_RFID_SS, PIN_RFID_RST);
 TM1637Display display(PIN_DISPLAY_CLK, PIN_DISPLAY_DIO);
 Preferences prefs;
-SemaphoreHandle_t displayLock;
 
 String deviceId, secret, token, mode, pairCode;
 String status = "pending";           // pending | approved | revoked | denied
@@ -54,15 +52,10 @@ bool rfidOk = true;
 uint32_t lastRfidCheckMs = 0;
 char lastUid[32] = "";
 uint32_t lastTapEndMs = 0;
-volatile bool loading = false;
 
 // ---------------------------------------------------------------- display
 
-void showSegments(const uint8_t seg[4]) {
-  xSemaphoreTake(displayLock, portMAX_DELAY);
-  display.setSegments(seg);
-  xSemaphoreGive(displayLock);
-}
+void showSegments(const uint8_t seg[4]) { display.setSegments(seg); }
 
 void showText(const char* text) {
   uint8_t seg[4];
@@ -76,41 +69,13 @@ void showNumber(long n) {
   showSegments(seg);
 }
 
-void setBrightness(uint8_t level) {
-  xSemaphoreTake(displayLock, portMAX_DELAY);
-  display.setBrightness(level);
-  xSemaphoreGive(displayLock);
-}
+void setBrightness(uint8_t level) { display.setBrightness(level); }
 
-/** Draws one animation frame, but only if the animation is still wanted once the display is ours. */
-void showFrameIfLoading(const uint8_t seg[4]) {
-  xSemaphoreTake(displayLock, portMAX_DELAY);
-  if (loading) display.setSegments(seg);
-  xSemaphoreGive(displayLock);
-}
-
-/** Runs beside the main loop: draws the filling lines for as long as [loading] is set. */
-void animationTask(void*) {
-  int step = 0;
-  for (;;) {
-    if (loading) {
-      uint8_t seg[4];
-      reader::loadingFrame(step++, seg);
-      showFrameIfLoading(seg);
-      vTaskDelay(pdMS_TO_TICKS(70));
-    } else {
-      step = 0;
-      vTaskDelay(pdMS_TO_TICKS(15));
-    }
-  }
-}
-
-void startLoading() { setBrightness(BRIGHT_ACTIVE); loading = true; }
-
-void stopLoading() {
-  loading = false;
-  xSemaphoreTake(displayLock, portMAX_DELAY);   // wait until a frame in progress is finished
-  xSemaphoreGive(displayLock);
+/** One step of the bar: a line in the middle of one more digit. Called as each stage of a tap is done. */
+void showProgress(int step) {
+  uint8_t seg[4];
+  reader::progressFrame(step, seg);
+  showSegments(seg);
 }
 
 void blinkText(const char* text, int times) {
@@ -120,16 +85,15 @@ void blinkText(const char* text, int times) {
   }
 }
 
-/** Counts from [from] to [to], then holds it. Numbers wider than the display scroll across. */
-void showBalance(long from, long to) {
-  if (reader::fitsOnDisplay(to)) {
-    const int steps = (from == to) ? 0 : 14;
-    for (int i = 0; i <= steps; i++) { showNumber(reader::rollValue(from, to, i, steps)); if (i < steps) delay(45); }
+/** The balance, shown straight away. Numbers wider than the display scroll across. */
+void showBalance(long balance) {
+  if (reader::fitsOnDisplay(balance)) {
+    showNumber(balance);
     delay(3000);
     return;
   }
   char digits[16];
-  snprintf(digits, sizeof digits, "%ld", to);
+  snprintf(digits, sizeof digits, "%ld", balance);
   const int positions = reader::scrollPositions(static_cast<int>(strlen(digits)));
   for (int p = 0; p < positions; p++) {
     uint8_t seg[4];
@@ -140,14 +104,12 @@ void showBalance(long from, long to) {
   delay(1800);
 }
 
-/** What the display shows while nothing is happening. */
+/** What the display shows while nothing is happening (the rules are in DisplayLogic.h and are tested there). */
 void showIdle() {
-  setBrightness(BRIGHT_IDLE);
-  if (status == "pending") { showText(reader::isPairCode(pairCode.c_str()) ? pairCode.c_str() : "PEnd"); setBrightness(BRIGHT_ACTIVE); return; }
-  if (status == "revoked") { showText("OFF"); return; }
-  if (status == "denied")  { showText("Err"); return; }
-  if (WiFi.status() != WL_CONNECTED || !serverReachable || !rfidOk) { showText(rfidOk ? "nEt" : "Err"); return; }
-  showText("----");
+  const bool online = WiFi.status() == WL_CONNECTED && serverReachable;
+  const char* text = reader::idleText(status.c_str(), online, rfidOk, pairCode.c_str());
+  showText(text);
+  setBrightness(strcmp(text, "----") == 0 ? BRIGHT_IDLE : BRIGHT_ACTIVE);
 }
 
 // ---------------------------------------------------------------- server
@@ -159,7 +121,7 @@ String hex32() {
 }
 
 /** POSTs JSON to the server. Returns the HTTP status, or 0 when no answer arrived. */
-int postJson(const String& path, const String& body, String& answer, bool withToken) {
+int postJson(const String& path, const String& body, String& answer, bool withToken, void (*stage)(int) = nullptr) {
   if (WiFi.status() != WL_CONNECTED) return 0;
   WiFiClient client;
   HTTPClient http;
@@ -168,7 +130,9 @@ int postJson(const String& path, const String& body, String& answer, bool withTo
   if (!http.begin(client, String(SERVER_URL) + path)) return 0;
   http.addHeader("Content-Type", "application/json");
   if (withToken) http.addHeader("Authorization", "Bearer " + token);
+  if (stage) stage(2);                     // request on its way
   const int code = http.POST(body);
+  if (stage) stage(3);                     // the server has answered
   if (code > 0) answer = http.getString();
   http.end();
   return code > 0 ? code : 0;
@@ -189,12 +153,16 @@ void sayHello() {
   JsonDocument doc;
   if (deserializeJson(doc, answer)) { Serial.println("hello: unreadable answer"); return; }
   if (code == 403) { status = "denied"; Serial.println("hello: the server does not accept this reader's secret. Forget the device in admin and reset it."); return; }
+  if (code == 429) { status = "busy"; Serial.println("hello: the server has too many readers waiting for approval (or too many tries). Approve or remove some in admin."); return; }
   if (code != 200) { Serial.printf("hello: HTTP %d\n", code); return; }
   const String s = doc["status"] | "";
   if (s == "approved") {
+    // Every hello brings a freshly signed token, but an earlier one stays valid, so the flash is written only
+    // the first time (or after a revoke), not every 30 seconds.
     const String t = doc["terminalToken"] | "";
-    if (t.length() && t != token) { token = t; prefs.putString("token", token); }
-    mode = String(doc["mode"] | "fixed");
+    if (t.length() && token.length() == 0) { token = t; prefs.putString("token", token); }
+    const String newMode = String(doc["mode"] | "fixed");
+    if (newMode != mode) { mode = newMode; prefs.putString("mode", mode); }
     pairCode = "";
     status = "approved";
   } else if (s == "pending") {
@@ -214,23 +182,19 @@ void present(int httpStatus, const String& answer) {
       ? reader::planFor(doc["action"] | "")
       : reader::planForHttp(httpStatus, parsed ? (doc["code"] | "") : nullptr);
   if (httpStatus == 401) { token = ""; prefs.remove("token"); status = "pending"; lastHelloMs = 0; }   // not accepted any more: ask again
+  if (httpStatus == 409) lastHelloMs = 0;                                                            // the mode was changed in admin: learn the new one now
   Serial.printf("tap answer: HTTP %d -> %s\n", httpStatus, plan.word);
 
   if (plan.word[0]) { if (plan.blink) blinkText(plan.word, 3); else { showText(plan.word); delay(plan.showBalance ? 800 : 1500); } }
-  if (plan.showBalance && parsed) {
-    const long to = doc["card"]["balance"] | 0L;
-    const long points = doc["points"] | 0L;
-    const long from = doc["balanceBefore"].is<long>() ? doc["balanceBefore"].as<long>() : (to - points);
-    showBalance(from < 0 ? to : from, to);
-  }
+  if (plan.showBalance && parsed) showBalance(doc["card"]["balance"] | 0L);
 }
 
 String makeKey() { return hex32().substring(0, 16) + String(millis(), HEX); }
 
-/** A card was read: send it, animate while waiting, show the answer. */
+/** A card was read: send it and show the answer as fast as it arrives. */
 void handleCard(const char* uid) {
-  const uint32_t start = millis();
-  startLoading();
+  setBrightness(BRIGHT_ACTIVE);
+  showProgress(1);                         // card read
   JsonDocument out;
   out["cardUid"] = uid;
   out["idempotencyKey"] = makeKey();       // the same key on every retry, so a lost answer can't give points twice
@@ -239,13 +203,11 @@ void handleCard(const char* uid) {
   const String path = (mode == "presence") ? "/presence/tap" : "/fixed/tap";
   int code = 0;
   for (int attempt = 0; attempt < 3 && code == 0; attempt++) {
-    code = postJson(path, payload, answer, true);
+    code = postJson(path, payload, answer, true, showProgress);
     if (code == 0) delay(300);
   }
   serverReachable = code > 0;
-  while (millis() - start < MIN_LOADING_MS) delay(10);
-  stopLoading();
-  setBrightness(BRIGHT_ACTIVE);
+  showProgress(reader::PROGRESS_STEPS);    // answer understood: the bar is full, the result follows at once
   present(code, answer);
   showIdle();
   strncpy(lastUid, uid, sizeof lastUid - 1);
@@ -278,30 +240,54 @@ bool readCard(char* uid, size_t size) {
 
 // ---------------------------------------------------------------- setup and loop
 
-void connectWifi() {
-  WiFi.mode(WIFI_STA);
+/** Says in the serial log why WiFi lets go: reason 15 / 202 = wrong password, 201 = network not found, 2 = auth expired. */
+void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) Serial.printf("WiFi: disconnected, reason %d\n", info.wifi_sta_disconnected.reason);
+  if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) Serial.printf("WiFi: got address %s\n", WiFi.localIP().toString().c_str());
+}
+
+/** Prints the networks this reader can see, to tell a wrong name from a weak signal from a 5 GHz-only network. */
+void listNetworks() {
+  Serial.println("WiFi: networks this reader can see (name, signal in dBm, channel):");
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false);                  // a scan fails while the radio is busy retrying to join
+  delay(300);
+  const int n = WiFi.scanNetworks();
+  if (n <= 0) Serial.println("  none: the antenna may be covered, or the board is too far from the router");
+  for (int i = 0; i < n && i < 15; i++) {
+    const String ssid = WiFi.SSID(i);
+    Serial.printf("  \"%s\"  %d dBm  channel %d%s\n", ssid.c_str(), WiFi.RSSI(i), WiFi.channel(i), ssid == WIFI_SSID ? "   <-- the one in config.h" : "");
+  }
+  WiFi.scanDelete();
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  startLoading();
+}
+
+void connectWifi() {
+  WiFi.onEvent(onWifiEvent);
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  Serial.printf("WiFi: joining \"%s\"\n", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  showText("nEt");                         // not online yet
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 20000) delay(100);
-  stopLoading();
-  Serial.printf("WiFi: %s  address %s\n", WiFi.status() == WL_CONNECTED ? "connected" : "not connected yet", WiFi.localIP().toString().c_str());
+  Serial.printf("WiFi: %s (status %d)  address %s\n", WiFi.status() == WL_CONNECTED ? "connected" : "not connected yet", static_cast<int>(WiFi.status()), WiFi.localIP().toString().c_str());
+  if (WiFi.status() != WL_CONNECTED) listNetworks();
 }
 
 void setup() {
   Serial.begin(115200);
-  displayLock = xSemaphoreCreateMutex();
-  xTaskCreatePinnedToCore(animationTask, "anim", 3072, nullptr, 1, nullptr, 0);
   display.setBrightness(BRIGHT_ACTIVE);
-  showText("8888"); delay(400);
   showText("    ");
 
   SPI.begin();
   rfid.PCD_Init();
   checkRfid();
 
+  WiFi.mode(WIFI_STA);                     // radio on first: the random numbers for the secret are then truly random
   prefs.begin("pont", false);
+  mode = prefs.getString("mode", "");
   secret = prefs.getString("secret", "");
   if (secret.length() < 16) { secret = hex32(); prefs.putString("secret", secret); }
   token = prefs.getString("token", "");

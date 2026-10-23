@@ -63,7 +63,7 @@ Give the server a fixed address in your router (a DHCP reservation) so the reade
 
 ## First start: pairing
 
-1. The display shows four dashes while it connects, then a **4-digit code** (like `5254`).
+1. While it joins WiFi the display says `nEt`; then it shows a **4-digit code** (like `5254`). If it can't reach the server it shows `nEt`, never the code.
 2. In admin, open **Readers**. The waiting reader is listed with the same code and its address. Give it a name, choose Fixed amount or Check-in, and press **Approve**.
 3. Within a few seconds the display shows `----`: it is ready. Tap a card.
 
@@ -74,17 +74,19 @@ If the code on the display and the one in admin don't match, don't approve it: i
 | Display | Meaning |
 |---|---|
 | `----` | Ready. Tap a card. |
-| lines filling in | Reading: the server is answering |
-| number rolling up | Your balance now (numbers above 9999 scroll across) |
+| a line in the middle of digit 1, then 2, 3, 4 | Working on your tap. One line per stage: card read, request sent, answer arriving, answer understood. It is as fast as the server, with no waiting added |
+| your balance | The result (numbers above 9999 scroll across), for about 3 seconds |
 | `In` / `OUt` | Signed in / signed out (then your balance) |
-| `PAUS` | Too soon since your last tap |
-| `FULL` | Limit reached (taps or points per day, or total) |
+| `PAUS` | Too soon since your last tap (then your balance) |
+| `FULL` | Limit reached: taps or points per day, or total (then your balance) |
 | `nOIn` | Not signed in (at a sign-out point) |
 | `bLoc` | Card is blocked |
 | `----` blinking | Card is not registered. An admin sees it under Suggested cards |
 | `nEt` | Can't reach the server |
 | four digits steady | Waiting for approval: this is the pairing code |
 | `OFF` | Revoked by an admin |
+| `dEny` | The server doesn't accept this reader's secret (it was reset, or something imitates it). In admin: Revoke, Forget, and let it register again |
+| `bUSy` | The server has 20 readers waiting already. Approve or reject some in admin |
 | `Err` | Something else is wrong (`Err` at start: the card reader isn't answering, check the wiring) |
 
 ## Trying it without the hardware
@@ -93,10 +95,10 @@ If the code on the display and the one in admin don't match, don't approve it: i
 
 ## Tests
 
-`./test/host/run.sh` tests what the display shows (digits and letters, the line-fill animation, rolling numbers, scrolling, the word for each answer) on your computer. `pio run` checks that the firmware compiles.
+`./test/host/run.sh` tests what the display shows (digits and letters, the four-step bar, scrolling, the word for each answer, what the idle display says) on your computer. `pio run` checks that the firmware compiles.
 
 ## If something goes wrong
 
 - **Display stays on `Err` from the start of the reader:** the MFRC522 isn't answering. Check the 3.3 V, GND and the five signal wires.
-- **`Err` after joining WiFi:** the server doesn't accept this reader's secret (for example you erased the ESP32's memory). In admin, remove the old entry (Revoke, then Forget) and the reader registers again.
-- **`nEt`:** wrong WiFi details, 5 GHz network, or the server address in `config.h` is wrong or the server is off.
+- **`dEny` after joining WiFi:** the server doesn't accept this reader's secret (for example you erased the ESP32's memory). In admin, remove the old entry (Revoke, then Forget) and the reader registers again.
+- **`nEt`:** wrong WiFi details, 5 GHz network, or the server address in `config.h` is wrong or the server is off. The serial log (`pio device monitor`) says why: `reason 201` means no network with that exact name was found (check for a space at the end of the name, as in `"MyWifi "`), `reason 15` or `202` means a wrong password. When joining fails it also lists the networks it can see.

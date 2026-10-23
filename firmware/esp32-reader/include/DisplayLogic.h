@@ -9,7 +9,7 @@
 namespace reader {
 
 // (named so they cannot clash with the SEG_A... macros of the TM1637 library)
-constexpr uint8_t LINE_TOP = 0x01, LINE_BOTTOM = 0x08, LINE_MIDDLE = 0x40;
+constexpr uint8_t LINE_MIDDLE = 0x40;
 
 /** The segments for one character; anything that can't be drawn on seven segments is blank. */
 inline uint8_t glyph(char c) {
@@ -45,34 +45,15 @@ inline void numberToSegments(long n, uint8_t out[4]) {
   for (int i = 0; i < len; i++) out[4 - len + i] = glyph(buf[i]);
 }
 
+/** The bar has one step per digit. */
+constexpr int PROGRESS_STEPS = 4;
+
 /**
- * The "reading" animation: lines fill in, left to right, one line at a time: bottom, then middle, then top of
- * each digit. [step] 0 is empty, 12 is full (three lines in each of four digits).
+ * The bar shown while a tap is read and answered: a line in the middle of digit 1, then of digit 2, and so on,
+ * one step for each stage of the work. Step 4 is "----", which is also what the display shows when ready.
  */
-inline void fillFrame(int step, uint8_t out[4]) {
-  for (int d = 0; d < 4; d++) {
-    int lines = step - 3 * d;
-    if (lines < 0) lines = 0;
-    if (lines > 3) lines = 3;
-    out[d] = lines == 0 ? 0 : lines == 1 ? LINE_BOTTOM : lines == 2 ? (LINE_BOTTOM | LINE_MIDDLE) : (LINE_BOTTOM | LINE_MIDDLE | LINE_TOP);
-  }
-}
-
-/** Fills up, then empties again, and repeats: for as long as the server takes to answer. */
-inline void loadingFrame(int step, uint8_t out[4]) {
-  int m = step % 24;
-  if (m < 0) m += 24;
-  fillFrame(m <= 12 ? m : 24 - m, out);
-}
-
-/** Counts from one balance to the next: fast at first, then slowing down. Step [n] is exactly [to]. */
-inline long rollValue(long from, long to, int i, int n) {
-  if (n <= 0 || i >= n) return to;
-  if (i <= 0) return from;
-  const double t = static_cast<double>(i) / n;
-  const double eased = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
-  const double v = from + (to - from) * eased;
-  return static_cast<long>(v >= 0 ? v + 0.5 : v - 0.5);
+inline void progressFrame(int step, uint8_t out[4]) {
+  for (int d = 0; d < 4; d++) out[d] = d < step ? LINE_MIDDLE : 0;
 }
 
 /** For numbers wider than the display: how many positions a four-digit window can sit at. */
@@ -127,10 +108,10 @@ inline Plan planFor(const char* action) {
     {"expired_out",  {"OUt",  true,  Kind::Good,    false}},
     {"already_in",   {"In",   false, Kind::Refused, false}},
     {"not_in",       {"nOIn", false, Kind::Refused, false}},
-    {"cooldown",     {"PAUS", false, Kind::Refused, false}},
-    {"limit_uses",   {"FULL", false, Kind::Refused, false}},
-    {"limit_points", {"FULL", false, Kind::Refused, false}},
-    {"limit_total",  {"FULL", false, Kind::Refused, false}},
+    {"cooldown",     {"PAUS", true,  Kind::Refused, false}},    // too soon / limit reached: the word, then the balance
+    {"limit_uses",   {"FULL", true,  Kind::Refused, false}},
+    {"limit_points", {"FULL", true,  Kind::Refused, false}},
+    {"limit_total",  {"FULL", true,  Kind::Refused, false}},
   };
   if (action) for (const Row& r : rows) if (std::strcmp(r.action, action) == 0) return r.plan;
   return {"Err", false, Kind::Error, false};
@@ -149,7 +130,26 @@ inline Plan planForStatus(const char* status) {
   if (status && std::strcmp(status, "pending") == 0) return {"PEnd", false, Kind::Refused, false};
   if (status && std::strcmp(status, "revoked") == 0) return {"OFF", false, Kind::Error, false};
   if (status && std::strcmp(status, "approved") == 0) return {"", false, Kind::Good, false};
+  if (status && std::strcmp(status, "denied") == 0) return {"dEny", false, Kind::Error, false};    // the server doesn't accept this reader's secret
+  if (status && std::strcmp(status, "busy") == 0) return {"bUSy", false, Kind::Refused, false};    // the server has too many readers waiting
   return {"Err", false, Kind::Error, false};
+}
+
+/**
+ * What the display shows when nothing is happening, most important first: the card reader not answering, then no
+ * network (a reader that can't reach the server must never look like it is just waiting), then what the server said.
+ * For a waiting reader that is the pairing code, but only if it really is four digits.
+ */
+inline const char* idleText(const char* status, bool online, bool rfidOk, const char* pairCode) {
+  if (!rfidOk) return "Err";
+  if (!online) return "nEt";
+  if (!status) return "Err";
+  if (std::strcmp(status, "approved") == 0) return "----";
+  if (std::strcmp(status, "pending") == 0) return isPairCode(pairCode) ? pairCode : "PEnd";
+  if (std::strcmp(status, "revoked") == 0) return "OFF";
+  if (std::strcmp(status, "denied") == 0) return "dEny";
+  if (std::strcmp(status, "busy") == 0) return "bUSy";
+  return "Err";
 }
 
 }  // namespace reader

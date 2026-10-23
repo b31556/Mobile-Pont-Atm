@@ -189,6 +189,23 @@ describe('removing a reader', () => {
     await app.inject({ method: 'DELETE', url: `/terminals/${terminalId}`, headers: auth(adminToken) });
     expect((await hello(app)).json()).toEqual({ status: 'revoked' });
   });
+
+  it('and the device shows as revoked in admin straight away, not only after its next hello', async () => {
+    const { app, adminToken } = await makeApp();
+    await hello(app);
+    const terminalId = (await approve(app, adminToken)).json().terminal.id;
+    await app.inject({ method: 'DELETE', url: `/terminals/${terminalId}`, headers: auth(adminToken) });
+    expect((await list(app, adminToken))[0]).toMatchObject({ status: 'revoked', terminal: null });
+  });
+
+  it('a name or place that is not text is a 400, not a server error', async () => {
+    const { app, adminToken } = await makeApp();
+    await hello(app);
+    expect((await approve(app, adminToken, { name: 123 })).statusCode).toBe(400);
+    expect((await approve(app, adminToken, { name: 'Reader', place: { x: 1 } })).statusCode).toBe(400);
+    expect((await approve(app, adminToken, { name: ['a'] })).statusCode).toBe(400);
+    expect((await approve(app, adminToken, { name: 'Reader' })).statusCode).toBe(200);
+  });
 });
 
 describe('phones and readers are different kinds of terminal', () => {
@@ -228,5 +245,55 @@ describe('phones and readers are different kinds of terminal', () => {
     expect(bad.statusCode).toBe(400); expect(bad.json().error).toContain('amount');
     expect((await patch(reader.id, { fixed: 'x' })).statusCode).toBe(400);
     expect((await patch(phone.terminalId, { fixed: good })).statusCode).toBe(400);
+  });
+});
+
+describe('abandoned and imitated readers', () => {
+  const STALE = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+
+  it('waiting devices that have gone quiet for 15 minutes are dropped, so they cannot fill the 20 slots forever', async () => {
+    const { app, db, adminToken } = await makeApp();
+    for (let i = 0; i < 20; i++) await hello(app, { deviceId: `AA:BB:CC:00:03:${String(i).padStart(2, '0')}` });
+    expect((await hello(app, { deviceId: 'AA:BB:CC:00:09:99' })).statusCode).toBe(429);
+    db.prepare("update devices set last_seen=? where status='pending'").run(STALE);
+    expect((await hello(app, { deviceId: 'AA:BB:CC:00:09:99' })).statusCode).toBe(200);
+    const rows = await list(app, adminToken);
+    expect(rows.map((r: { id: string }) => r.id)).toEqual(['AA:BB:CC:00:09:99']);
+  });
+
+  it('the device list also drops quiet waiting devices, but never an approved or revoked one', async () => {
+    const { app, db, adminToken } = await makeApp();
+    await hello(app); await approve(app, adminToken);
+    await hello(app, { deviceId: 'AA:BB:CC:77:77:01' });
+    await hello(app, { deviceId: 'AA:BB:CC:77:77:02' });
+    await app.inject({ method: 'DELETE', url: '/devices/AA:BB:CC:77:77:02', headers: auth(adminToken) });
+    db.prepare('update devices set last_seen=?').run(STALE);
+    const rows = await list(app, adminToken);
+    expect(rows.map((r: { id: string }) => r.id)).toEqual([ID]);
+  });
+
+  it('a waiting device that keeps asking is not dropped', async () => {
+    const { app, adminToken } = await makeApp();
+    await hello(app);
+    await hello(app);
+    expect(await list(app, adminToken)).toHaveLength(1);
+  });
+
+  it('wrong-secret attempts on a device id are counted and shown to admins with the address they came from', async () => {
+    const { app, adminToken } = await makeApp();
+    await hello(app, {}, '192.168.0.60');
+    expect((await list(app, adminToken))[0].denied).toBeNull();
+    await hello(app, { secret: 'an-imitators-secret-long-enough-1' }, '192.168.0.99');
+    await hello(app, { secret: 'an-imitators-secret-long-enough-2' }, '192.168.0.99');
+    const row = (await list(app, adminToken))[0];
+    expect(row.denied).toMatchObject({ count: 2, ip: '192.168.0.99' });
+    expect(row.denied.at).toBeTruthy();
+  });
+
+  it('the same warning shows on an approved reader whose id someone tried to take', async () => {
+    const { app, adminToken } = await makeApp();
+    await hello(app); await approve(app, adminToken);
+    await hello(app, { secret: 'an-imitators-secret-long-enough-3' }, '192.168.0.99');
+    expect((await list(app, adminToken))[0]).toMatchObject({ status: 'approved', denied: { count: 1, ip: '192.168.0.99' } });
   });
 });

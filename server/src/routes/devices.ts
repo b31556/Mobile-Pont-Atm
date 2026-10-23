@@ -5,12 +5,14 @@ import { defaultZone } from '../presence.js';
 
 const ID_RE = /^[A-Za-z0-9:_-]{6,40}$/;
 const MAX_WAITING = 20;
+const WAITING_EXPIRES_MS = 15 * 60 * 1000;   // a waiting device that has gone quiet this long is forgotten
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 interface DeviceRow {
   id: string; secret_hash: string; status: 'pending' | 'approved' | 'revoked'; terminal_id: string | null;
   ip: string | null; firmware: string | null; first_seen: string; last_seen: string; pair_code: string | null;
+  denied_count: number; denied_ip: string | null; denied_at: string | null;
 }
 
 /** Readers (ESP32) register themselves and wait for an admin to approve them; after that they act as a terminal. */
@@ -18,6 +20,11 @@ export function registerDevices(app: FastifyInstance) {
   const db = app.db;
   const calls = new AttemptLimiter(120, 5 * 60 * 1000);       // every hello counts, per address
   const badSecrets = new AttemptLimiter(10, 15 * 60 * 1000);  // wrong secrets, per address
+
+  /** Waiting devices that stopped asking (switched off, or made up by someone) must not hold one of the 20 places forever. */
+  function dropQuietWaiting() {
+    db.prepare("delete from devices where status='pending' and last_seen < ?").run(new Date(Date.now() - WAITING_EXPIRES_MS).toISOString());
+  }
 
   /** A 4-digit code no other waiting device has. The reader shows it and the admin sees it, so they can tell which reader is which. */
   function newPairCode(): string {
@@ -40,6 +47,7 @@ export function registerDevices(app: FastifyInstance) {
     const hash = sha256(b.secret);
     const now = new Date().toISOString();
 
+    dropQuietWaiting();
     const row = db.prepare('select * from devices where id=?').get(b.deviceId) as DeviceRow | undefined;
     if (!row) {
       const waiting = (db.prepare("select count(*) c from devices where status='pending'").get() as { c: number }).c;
@@ -50,6 +58,7 @@ export function registerDevices(app: FastifyInstance) {
     }
     if (!timingSafeEqual(Buffer.from(hash), Buffer.from(row.secret_hash))) {
       badSecrets.fail(ip);
+      db.prepare('update devices set denied_count=denied_count+1, denied_ip=?, denied_at=? where id=?').run(ip, now, row.id);
       return reply.code(403).send({ error: 'Wrong secret for this device' });
     }
     db.prepare('update devices set ip=?, firmware=?, last_seen=? where id=?').run(ip, firmware ?? row.firmware, now, row.id);
@@ -69,12 +78,14 @@ export function registerDevices(app: FastifyInstance) {
   });
 
   app.get('/devices', { preHandler: app.requireAdmin }, async () => {
+    dropQuietWaiting();
     const rows = db.prepare('select * from devices order by first_seen').all() as DeviceRow[];
     return rows.map(d => {
       const t = d.terminal_id ? db.prepare('select id,name,mode,active from terminals where id=?').get(d.terminal_id) as { id: string; name: string; mode: string; active: number } | undefined : undefined;
       return {
         id: d.id, status: d.status, code: d.status === 'pending' ? d.pair_code : null, ip: d.ip, firmware: d.firmware, firstSeen: d.first_seen, lastSeen: d.last_seen,
         online: Date.now() - Date.parse(d.last_seen) < ONLINE_WINDOW_MS,
+        denied: d.denied_count > 0 ? { count: d.denied_count, ip: d.denied_ip, at: d.denied_at } : null,
         terminal: t && t.active ? { id: t.id, name: t.name, mode: t.mode } : null,
       };
     });
@@ -87,6 +98,8 @@ export function registerDevices(app: FastifyInstance) {
     if (!row) return reply.code(404).send({ error: 'Device not found' });
     if (row.status === 'approved') return reply.code(409).send({ error: 'This device is already approved.' });
     if (row.status === 'revoked') return reply.code(409).send({ error: 'This device was revoked. Forget it first, then it can register again.' });
+    if (b.name !== undefined && typeof b.name !== 'string') return reply.code(400).send({ error: 'The name must be text' });
+    if (b.place !== undefined && typeof b.place !== 'string') return reply.code(400).send({ error: 'The place must be text' });
     const name = (b.name ?? '').trim();
     if (!name) return reply.code(400).send({ error: 'Give the reader a name' });
     const mode = b.mode ?? 'fixed';

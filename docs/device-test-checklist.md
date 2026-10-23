@@ -72,7 +72,7 @@ Notes / failures:
 - [ ] Wiring checked against the table; the display shows `8888` for a moment at power-on, and no `Err` after a few seconds
 - [ ] The reader joins WiFi and shows a steady 4-digit code; the same code and the reader's address are listed under Readers in admin; no other reader shows that code
 - [ ] Approve it as Fixed amount: within a few seconds the display shows `----`
-- [ ] Tap a registered card: lines fill in left to right (bottom, middle, top), then the number rolls up to the new balance and stays about 3 seconds, then `----`
+- [ ] Tap a registered card: a line appears in the middle of digit 1, then 2, 3, 4 (a four-step bar that is over in a blink), then the new balance appears at once and stays about 3 seconds, then `----`. Nothing animates while idle
 - [ ] The balance matches the card in admin, and the grant is in Transactions (and can be stornoed)
 - [ ] Hold the card on the reader: it is read once, not repeatedly. Tap again straight away: `PAUS`
 - [ ] Set limits (taps per 24 h, points per 24 h, taps ever) and check `FULL` when reached; storno a grant and the card can tap again

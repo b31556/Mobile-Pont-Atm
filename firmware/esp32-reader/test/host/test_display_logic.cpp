@@ -45,45 +45,20 @@ static void testNumbers() {
   CHECK(fitsOnDisplay(9999)); CHECK(!fitsOnDisplay(10000)); CHECK(fitsOnDisplay(0));
 }
 
-static void testFill() {
+static void testProgress() {
   uint8_t o[4];
-  const uint8_t D = 0x08, DG = 0x48, DGA = 0x49;                       // bottom, bottom+middle, bottom+middle+top
-  fillFrame(0, o);  CHECK_SEG(o, 0, 0, 0, 0);
-  fillFrame(1, o);  CHECK_SEG(o, D, 0, 0, 0);
-  fillFrame(2, o);  CHECK_SEG(o, DG, 0, 0, 0);
-  fillFrame(3, o);  CHECK_SEG(o, DGA, 0, 0, 0);
-  fillFrame(4, o);  CHECK_SEG(o, DGA, D, 0, 0);                        // fills left to right, one line at a time
-  fillFrame(7, o);  CHECK_SEG(o, DGA, DGA, D, 0);
-  fillFrame(12, o); CHECK_SEG(o, DGA, DGA, DGA, DGA);
-  fillFrame(99, o); CHECK_SEG(o, DGA, DGA, DGA, DGA);                  // past the end stays full
-  fillFrame(-4, o); CHECK_SEG(o, 0, 0, 0, 0);
-  // every step adds exactly one line
-  int prev = 0;
-  for (int s = 0; s <= 12; s++) { fillFrame(s, o); int lines = 0; for (int d = 0; d < 4; d++) for (int b : {0x08, 0x40, 0x01}) if (o[d] & b) lines++; CHECK(lines == s); CHECK(lines >= prev); prev = lines; }
-}
-
-static void testLoading() {
-  uint8_t a[4], b[4];
-  loadingFrame(0, a);  CHECK_SEG(a, 0, 0, 0, 0);
-  loadingFrame(12, a); fillFrame(12, b); CHECK(std::memcmp(a, b, 4) == 0);
-  loadingFrame(18, a); fillFrame(6, b);  CHECK(std::memcmp(a, b, 4) == 0);   // empties again on the way down
-  loadingFrame(24, a); CHECK_SEG(a, 0, 0, 0, 0);
-  loadingFrame(24 + 5, a); fillFrame(5, b); CHECK(std::memcmp(a, b, 4) == 0); // and loops for as long as the server takes
-  loadingFrame(24 * 40 + 12, a); fillFrame(12, b); CHECK(std::memcmp(a, b, 4) == 0);
-}
-
-static void testRoll() {
-  CHECK(rollValue(10, 50, 0, 8) == 10);
-  CHECK(rollValue(10, 50, 8, 8) == 50);
-  CHECK(rollValue(50, 10, 8, 8) == 10);
-  CHECK(rollValue(50, 50, 3, 8) == 50);
-  CHECK(rollValue(10, 50, 3, 0) == 50);                                // no steps: straight to the answer
-  long prev = 10;
-  for (int i = 0; i <= 8; i++) { long v = rollValue(10, 50, i, 8); CHECK(v >= prev); CHECK(v >= 10 && v <= 50); prev = v; }
-  prev = 50;
-  for (int i = 0; i <= 8; i++) { long v = rollValue(50, 10, i, 8); CHECK(v <= prev); CHECK(v >= 10 && v <= 50); prev = v; }
-  CHECK(rollValue(10, 50, 99, 8) == 50);                               // past the end stays on the answer
-  CHECK(rollValue(0, 9999, 4, 8) > 0 && rollValue(0, 9999, 4, 8) < 9999);
+  const uint8_t L = 0x40;                                              // the middle line of a digit
+  progressFrame(0, o); CHECK_SEG(o, 0, 0, 0, 0);
+  progressFrame(1, o); CHECK_SEG(o, L, 0, 0, 0);                       // first line, digit 1 ...
+  progressFrame(2, o); CHECK_SEG(o, L, L, 0, 0);                       // ... then digit 2, and so on: a four-step bar
+  progressFrame(3, o); CHECK_SEG(o, L, L, L, 0);
+  progressFrame(4, o); CHECK_SEG(o, L, L, L, L);
+  progressFrame(9, o); CHECK_SEG(o, L, L, L, L);                       // past the end stays full
+  progressFrame(-3, o); CHECK_SEG(o, 0, 0, 0, 0);
+  CHECK(PROGRESS_STEPS == 4);
+  // the bar is the same "----" that means ready, drawn one digit at a time, so it ends where idle begins
+  uint8_t idle[4]; textToSegments("----", idle);
+  progressFrame(PROGRESS_STEPS, o); CHECK(std::memcmp(o, idle, 4) == 0);
 }
 
 static void testScroll() {
@@ -113,8 +88,8 @@ static void testPlans() {
   struct Case { const char* action; const char* word; bool balance; };
   const Case cases[] = {
     {"granted", "", true}, {"in", "In", true}, {"out", "OUt", true}, {"expired_in", "In", true}, {"expired_out", "OUt", true},
-    {"already_in", "In", false}, {"not_in", "nOIn", false}, {"cooldown", "PAUS", false},
-    {"limit_uses", "FULL", false}, {"limit_points", "FULL", false}, {"limit_total", "FULL", false},
+    {"already_in", "In", false}, {"not_in", "nOIn", false},
+    {"cooldown", "PAUS", true}, {"limit_uses", "FULL", true}, {"limit_points", "FULL", true}, {"limit_total", "FULL", true},   // too soon / limit: the balance follows
   };
   for (const Case& c : cases) {
     const Plan p = planFor(c.action);
@@ -133,7 +108,7 @@ static void testPlans() {
   CHECK(planForHttp(404, "unknown_card").blink);
   CHECK(!planFor("granted").blink);
   // every word fits the display and is drawable (no blank letters inside a word)
-  const char* words[] = {"In", "OUt", "nOIn", "PAUS", "FULL", "Err", "----", "bLoc", "nEt", "PEnd", "OFF"};
+  const char* words[] = {"In", "OUt", "nOIn", "PAUS", "FULL", "Err", "----", "bLoc", "nEt", "PEnd", "OFF", "dEny", "bUSy"};
   for (const char* w : words) { CHECK(std::strlen(w) <= 4); for (const char* q = w; *q; q++) CHECK(glyph(*q) != 0); }
 }
 
@@ -145,11 +120,31 @@ static void testPairCode() {
   CHECK(std::strcmp(planForStatus("pending").word, "PEnd") == 0);
   CHECK(std::strcmp(planForStatus("revoked").word, "OFF") == 0);
   CHECK(std::strcmp(planForStatus("approved").word, "") == 0);
+  CHECK(std::strcmp(planForStatus("denied").word, "dEny") == 0);
+  CHECK(std::strcmp(planForStatus("busy").word, "bUSy") == 0);
   CHECK(std::strcmp(planForStatus(nullptr).word, "Err") == 0);
 }
 
+static void testIdle() {
+  // what the display shows when nothing is happening, in order of importance
+  CHECK(std::strcmp(idleText("approved", true, true, ""), "----") == 0);
+  CHECK(std::strcmp(idleText("pending", true, true, "4821"), "4821") == 0);          // the pairing code, as sent by the server
+  CHECK(std::strcmp(idleText("pending", true, true, ""), "PEnd") == 0);              // no code yet
+  CHECK(std::strcmp(idleText("pending", true, true, "48x1"), "PEnd") == 0);          // junk is never displayed
+  CHECK(std::strcmp(idleText("pending", false, true, "4821"), "nEt") == 0);          // no network beats waiting
+  CHECK(std::strcmp(idleText("approved", false, true, ""), "nEt") == 0);
+  CHECK(std::strcmp(idleText("approved", true, false, ""), "Err") == 0);             // the card reader not answering is shown first
+  CHECK(std::strcmp(idleText("pending", false, false, "4821"), "Err") == 0);
+  CHECK(std::strcmp(idleText("revoked", true, true, ""), "OFF") == 0);
+  CHECK(std::strcmp(idleText("denied", true, true, ""), "dEny") == 0);
+  CHECK(std::strcmp(idleText("busy", true, true, ""), "bUSy") == 0);
+  CHECK(std::strcmp(idleText("whatever", true, true, ""), "Err") == 0);
+  CHECK(std::strcmp(idleText(nullptr, true, true, nullptr), "Err") == 0);
+  CHECK(std::strcmp(idleText("pending", true, true, nullptr), "PEnd") == 0);
+}
+
 int main() {
-  testGlyphs(); testText(); testNumbers(); testFill(); testLoading(); testRoll(); testScroll(); testUid(); testPlans(); testPairCode();
+  testGlyphs(); testText(); testNumbers(); testProgress(); testScroll(); testUid(); testPlans(); testPairCode(); testIdle();
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures ? 1 : 0;
 }
