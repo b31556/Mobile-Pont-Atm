@@ -70,7 +70,8 @@ create unique index if not exists presence_out_key on presence_sessions(out_term
 create table if not exists devices(
   id text primary key, secret_hash text not null,
   status text not null check(status in ('pending','approved','revoked')),
-  terminal_id text references terminals(id), ip text, firmware text, first_seen text not null, last_seen text not null
+  terminal_id text references terminals(id), ip text, firmware text, first_seen text not null, last_seen text not null,
+  pair_code text
 );
 create table if not exists presets(
   terminal_id text not null references terminals(id), value integer not null,
@@ -110,6 +111,7 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'terminals', 'fixed_max_uses_24h', 'integer');
   ensureColumn(db, 'terminals', 'fixed_max_points_24h', 'integer');
   ensureColumn(db, 'terminals', 'fixed_max_uses_total', 'integer');
+  ensureColumn(db, 'devices', 'pair_code', 'text');
   ensureDefaultZone(db);
   return db;
 }

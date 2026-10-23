@@ -230,8 +230,8 @@ function readersPane() {
   const revoked = devices.filter(d => d.status === 'revoked');
   const deviceOf = t => devices.find(d => d.terminal && d.terminal.id === t.id);
   const waiting = pending.length ? `<section class="suggest" aria-label="Waiting for approval"><h2>Waiting for approval <span class="badge">${pending.length}</span></h2>
-    <p>These readers found the server by themselves. Approve the ones you recognise (check the address).</p>
-    ${pending.map(d => `<form class="srow" data-approve="${esc(d.id)}"><code class="mono uid">${esc(d.id)}</code>
+    <p>These readers found the server by themselves. Each one shows a 4-digit code on its display: approve the one whose code matches.</p>
+    ${pending.map(d => `<form class="srow" data-approve="${esc(d.id)}"><span class="paircode" title="This code is on the reader's display">${esc(d.code || '----')}</span><code class="mono uid">${esc(d.id)}</code>
       <span class="swhen">${esc(d.ip || '?')} · firmware ${esc(d.firmware || '?')} · ${d.online ? 'online' : 'last seen ' + esc(when(d.lastSeen))}</span>
       <input name="name" class="search" placeholder="Name, e.g. Entrance" required maxlength="60" aria-label="Name for ${esc(d.id)}" style="min-width:150px">
       <select name="mode" class="modesel" aria-label="Mode"><option value="fixed">Fixed amount</option><option value="presence">Check-in</option></select>

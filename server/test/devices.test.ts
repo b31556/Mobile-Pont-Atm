@@ -15,7 +15,7 @@ describe('a reader joins', () => {
     const { app, adminToken } = await makeApp();
     const res = await hello(app, {}, '192.168.0.60');
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: 'pending' });
+    expect(res.json()).toMatchObject({ status: 'pending' });
     expect(res.json().terminalToken).toBeUndefined();
     const rows = await list(app, adminToken);
     expect(rows).toHaveLength(1);
@@ -42,7 +42,39 @@ describe('a reader joins', () => {
   it('a pending device gets no token before approval', async () => {
     const { app } = await makeApp();
     await hello(app);
-    expect((await hello(app)).json()).toEqual({ status: 'pending' });
+    const again = (await hello(app)).json();
+    expect(again.status).toBe('pending');
+    expect(again.terminalToken).toBeUndefined();
+  });
+
+  it('a waiting device is given a 4-digit code, the same every time, and admin sees it next to the device', async () => {
+    const { app, adminToken } = await makeApp();
+    const first = (await hello(app)).json();
+    expect(first.code).toMatch(/^[1-9]\d{3}$/);
+    expect((await hello(app)).json().code).toBe(first.code);
+    expect((await list(app, adminToken))[0]).toMatchObject({ status: 'pending', code: first.code });
+  });
+
+  it('waiting devices get different codes, so a code identifies one reader', async () => {
+    const { app } = await makeApp();
+    const codes = new Set<string>();
+    for (let i = 0; i < 20; i++) codes.add((await hello(app, { deviceId: `AA:BB:CC:00:02:${String(i).padStart(2, '0')}` })).json().code);
+    expect(codes.size).toBe(20);
+  });
+
+  it('an approved device is no longer given a code, and admin stops showing one', async () => {
+    const { app, adminToken } = await makeApp();
+    await hello(app); await approve(app, adminToken);
+    const next = (await hello(app)).json();
+    expect(next.status).toBe('approved'); expect(next.code).toBeUndefined();
+    expect((await list(app, adminToken))[0].code).toBeNull();
+  });
+
+  it('a code is freed when its device is rejected, and a re-registering device gets a code again', async () => {
+    const { app, adminToken } = await makeApp();
+    await hello(app);
+    await app.inject({ method: 'DELETE', url: `/devices/${ID}`, headers: auth(adminToken) });
+    expect((await hello(app)).json().code).toMatch(/^\d{4}$/);
   });
 
   it('approving gives the next hello a working terminal token, name and mode', async () => {
