@@ -5,7 +5,7 @@ import { TOO_MANY } from '../limiter.js';
 import { defaultZone, getZone } from '../presence.js';
 import { validateFixed } from '../fixed.js';
 import { fixedOf } from './fixed.js';
-import { displayPathFor } from './display.js';
+import { displayCodeFor, renewDisplayCode } from './display.js';
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
@@ -32,7 +32,7 @@ export function registerTerminals(app: FastifyInstance) {
       return {
         id: t.id, name: t.name, place: t.place, lastSeen: t.last_seen, appVersion: t.app_version, device: t.device,
         online: !!t.last_seen && Date.now() - Date.parse(t.last_seen) < ONLINE_WINDOW_MS,
-        givenToday: given.s, operator: t.last_operator ?? '', mode: t.mode, direction: t.direction, kind: t.kind, fixed: fixedOf(t), displayPath: displayPathFor(db, t.id), displayBeep: !!t.display_beep,
+        givenToday: given.s, operator: t.last_operator ?? '', mode: t.mode, direction: t.direction, kind: t.kind, fixed: fixedOf(t), displayCode: displayCodeFor(db, t.id), displayBeep: !!t.display_beep,
         ip: t.kind === 'device' ? (db.prepare('select ip from devices where terminal_id=?').get(t.id) as { ip: string | null } | undefined)?.ip ?? null : null,
         firmware: t.kind === 'device' ? (db.prepare('select firmware from devices where terminal_id=?').get(t.id) as { firmware: string | null } | undefined)?.firmware ?? null : null,
         zoneId: t.zone_id ?? null, zoneName: t.zone_id ? (db.prepare('select name from zones where id=?').get(t.zone_id) as { name: string } | undefined)?.name ?? null : null,
@@ -90,13 +90,13 @@ export function registerTerminals(app: FastifyInstance) {
     return db.prepare('select id,name,place,mode,zone_id zoneId,direction from terminals where id=?').get(id);
   });
 
-  /** Makes a new display link and drops the old one at once (for when it was shared too widely). */
-  app.post('/terminals/:id/display-link', { preHandler: app.requireAdmin }, async (req, reply) => {
+  /** Makes a new display code, signs out every screen that used the old one, and hangs up their live connections. */
+  app.post('/terminals/:id/display-code', { preHandler: app.requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
     if (!db.prepare('select 1 from terminals where id=? and active=1').get(id)) return reply.code(404).send({ error: 'Terminal not found' });
-    db.prepare('update terminals set display_token=NULL where id=?').run(id);
+    const displayCode = renewDisplayCode(db, id);
     app.displayHub.closeStreams(id);
-    return { displayPath: displayPathFor(db, id) };
+    return { displayCode };
   });
 
   app.delete('/terminals/:id', { preHandler: app.requireAdmin }, async (req, reply) => {

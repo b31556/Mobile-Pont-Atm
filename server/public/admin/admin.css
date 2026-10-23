@@ -150,3 +150,4 @@ body{min-height:100vh}
 .displaylink input[readonly]{flex:1;min-width:240px;height:34px;border:1.5px solid var(--line);border-radius:9px;padding:0 10px;font:13px ui-monospace,Menlo,monospace;color:var(--ink-2);background:#F7F9FA}
 .displaylink .hint{flex-basis:100%;margin:0}
 a.btn{text-decoration:none}
+.codebox{font:800 22px ui-monospace,Menlo,monospace;letter-spacing:.2em;background:#fff;border:2px solid var(--ink);border-radius:10px;padding:2px 12px;color:var(--ink)}

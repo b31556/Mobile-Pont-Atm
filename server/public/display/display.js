@@ -1,11 +1,10 @@
 'use strict';
 /* A reader's display page: shows each tap live, and can beep. All text goes in with textContent (names come from the database). */
 (() => {
-  const key = location.pathname.split('/')[2] || '';
   const params = new URLSearchParams(location.search);
   const HOLD_MS = Math.max(1, Math.min(60, Number(params.get('hold')) || 6)) * 1000;
   const $ = id => document.getElementById(id);
-  const stage = $('stage'), idle = $('idle'), result = $('result'), gone = $('gone');
+  const stage = $('stage'), idle = $('idle'), result = $('result'), entry = $('entry');
 
   let state = { name: '', beep: false };
   let soundWanted = true;          // this screen's own switch; the admin's setting decides whether the button exists
@@ -66,14 +65,14 @@
   /* ---------- what is on screen ---------- */
   function showIdle() {
     stage.dataset.state = 'idle';
-    result.hidden = true; gone.hidden = true; idle.hidden = false;
+    result.hidden = true; entry.hidden = true; idle.hidden = false;
     document.title = state.name ? `${state.name} · Tap your card` : 'Tap your card';
   }
 
   function show(e) {
     clearTimeout(holdTimer);
     stage.dataset.state = e.tone;
-    idle.hidden = true; gone.hidden = true; result.hidden = false;
+    idle.hidden = true; entry.hidden = true; result.hidden = false;
 
     const photo = $('photo');
     photo.replaceChildren();
@@ -81,7 +80,7 @@
       const img = new Image();
       img.alt = '';
       img.onerror = () => { photo.replaceChildren(initial(e.card.name)); };
-      img.src = `/display/${encodeURIComponent(key)}/photo/${encodeURIComponent(e.card.id)}?v=${e.seq}`;
+      img.src = `/display/photo/${encodeURIComponent(e.card.id)}?v=${e.seq}`;
       photo.appendChild(img);
     } else photo.appendChild(initial('?'));
     $('name').textContent = e.card ? e.card.name : '';
@@ -92,7 +91,7 @@
     const bal = $('balance');
     bal.hidden = e.balance == null;
     if (e.balance != null) {
-      bal.replaceChildren(document.createTextNode('Balance'), Object.assign(document.createElement('b'), { textContent: String(e.balance) }), document.createTextNode(e.balance === 1 ? 'point' : 'points'));
+      bal.replaceChildren(document.createTextNode('Balance '), Object.assign(document.createElement('b'), { textContent: String(e.balance) }), document.createTextNode(e.balance === 1 ? ' point' : ' points'));
     }
     document.title = e.headline;
     beep(e.sound);
@@ -110,23 +109,56 @@
     updateSoundButton();
   }
 
+  /* ---------- the code ---------- */
+  const note = text => { $('entry-note').textContent = text || ''; };
+
+  // The screen is not (or no longer) signed in: ask for the reader's code.
+  function showEntry(message) {
+    if (es) { es.close(); es = null; }
+    clearTimeout(retryTimer); clearTimeout(holdTimer);
+    stage.dataset.state = 'idle';
+    idle.hidden = true; result.hidden = true; entry.hidden = false;
+    live.hidden = true; $('sound').hidden = true; $('leave').hidden = true;
+    $('reader').textContent = '';
+    document.title = 'Reader display';
+    note(message);
+    $('code').value = '';
+    $('code').focus();
+  }
+
+  function enterLive(s) {
+    live.hidden = false;
+    $('leave').hidden = false;
+    setReader(s);
+    showIdle();
+    connect();
+  }
+
+  async function submitCode() {
+    const code = $('code').value.trim();
+    if (!/^\d{6}$/.test(code)) { note('The code is 6 digits.'); return; }
+    note('');
+    try {
+      const r = await fetch('/display/enter', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code }), credentials: 'same-origin' });
+      if (r.ok) { enterLive(await r.json()); return; }
+      if (r.status === 429) note('Too many tries. Wait a few minutes.');
+      else if (r.status === 401) { note('That code is not right.'); $('code').select(); }
+      else note('Could not sign in. Try again.');
+    } catch { note('Can’t reach the server.'); }
+  }
+  $('entry-form').addEventListener('submit', e => { e.preventDefault(); submitCode(); });
+  $('code').addEventListener('input', () => { $('code').value = $('code').value.replace(/\D/g, '').slice(0, 6); if ($('code').value.length === 6) submitCode(); });
+  $('leave').addEventListener('click', () => { fetch('/display/leave', { method: 'POST', credentials: 'same-origin' }).catch(() => {}).finally(() => showEntry('')); });
+
   /* ---------- the live connection ---------- */
   const live = $('live');
   const setLive = ok => { live.dataset.ok = String(ok); live.textContent = ok ? 'Live' : 'Reconnecting…'; };
   let es = null, retryTimer = null;
 
-  // The server answers 404 to a link that was replaced or a reader that was removed: stop trying then.
-  function linkGone() {
-    if (es) es.close();
-    clearTimeout(retryTimer); clearTimeout(holdTimer);
-    stage.dataset.state = 'idle';
-    idle.hidden = true; result.hidden = true; gone.hidden = false; live.hidden = true; $('sound').hidden = true;
-    document.title = 'This link is no longer valid';
-  }
-
   function connect() {
     clearTimeout(retryTimer);
-    es = new EventSource(`/display/${encodeURIComponent(key)}/events`);
+    if (es) es.close();
+    es = new EventSource('/display/events');
     es.addEventListener('hello', ev => { setLive(true); setReader(JSON.parse(ev.data)); });
     es.addEventListener('tap', ev => show(JSON.parse(ev.data)));
     es.onerror = () => {
@@ -137,20 +169,23 @@
         // gives up for good, so a wall screen must start a new connection itself.
         if (source === es && source.readyState === EventSource.CLOSED) { clearTimeout(retryTimer); retryTimer = setTimeout(connect, 5000); }
       };
-      fetch(`/display/${encodeURIComponent(key)}/state`, { cache: 'no-store' })
-        .then(r => { if (r.status === 404) linkGone(); else giveUpOrRetry(); })
+      fetch('/display/state', { cache: 'no-store', credentials: 'same-origin' })
+        .then(r => { if (r.status === 401) showEntry('This screen was signed out. Enter the code again.'); else giveUpOrRetry(); })
         .catch(giveUpOrRetry);
     };
   }
 
-  // The admin may switch the beep on or off, or rename the reader, while the page is open; a dead link is noticed here too.
+  // The admin may switch the beep on or off, or rename the reader, while the page is open; being signed out is noticed here too.
   setInterval(() => {
-    fetch(`/display/${encodeURIComponent(key)}/state`, { cache: 'no-store' })
-      .then(r => r.status === 404 ? (linkGone(), null) : r.ok ? r.json() : null)
+    if (entry.hidden === false) return;
+    fetch('/display/state', { cache: 'no-store', credentials: 'same-origin' })
+      .then(r => r.status === 401 ? (showEntry('This screen was signed out. Enter the code again.'), null) : r.ok ? r.json() : null)
       .then(s => { if (s) setReader(s); })
       .catch(() => {});
   }, 30000);
 
-  showIdle();
-  connect();
+  /* ---------- start: already signed in on this screen, or ask for the code ---------- */
+  fetch('/display/state', { cache: 'no-store', credentials: 'same-origin' })
+    .then(r => r.ok ? r.json().then(enterLive) : showEntry(''))
+    .catch(() => showEntry('Can’t reach the server.'));
 })();
