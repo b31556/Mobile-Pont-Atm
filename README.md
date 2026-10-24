@@ -60,7 +60,7 @@ Address for the app and admin site: `http://<machine>.<tailnet>.ts.net:3000` (th
 
 1. In the admin site: **Terminals**, **Pair a phone**: name it (like "Bar 2") and note the 6-digit code (valid 10 minutes).
 2. **Cards**, **Add card**: holder name, photo, card UID, starting points. To register a card without typing its UID: tap it on a terminal, and on the "Card not registered" screen press **Suggest for addition**. It then shows up on the admin site's Cards page under **Suggested cards**, with **Copy UID** and **Add as card** (the form opens with the UID already filled in).
-3. On the phone: enter the pairing code. That is all: there is no sign-in, and the phone goes straight to the keypad. Charges are recorded under the terminal's name. To retire or lose a phone, revoke its terminal in the admin site, or use **Unpair** in the phone's terminal menu. The server address is fixed in the app at build time (`DEFAULT_BASE_URL` in `android/app/build.gradle.kts`); change it there and rebuild to point at another server.
+3. On the phone: enter the pairing code. That is all: there is no sign-in, and the phone goes straight to the keypad. Charges are recorded under the terminal's name. To retire or lose a phone, revoke its terminal in the admin site, or use **Unpair** in the phone's terminal menu. The server address is fixed in the app at build time: put `pont.baseUrl=http://your-server:3000` in `android/local.properties` (git-ignored) or build with `-Ppont.baseUrl=...`, and rebuild to point at another server. Without a setting the app points at `http://10.0.2.2:3000`, which is your computer as seen from the Android emulator.
 
 ## Build the app
 
@@ -74,7 +74,7 @@ export ANDROID_HOME=$HOME/Android/Sdk
 ./gradlew :app:testDebugUnitTest    # JVM unit tests
 ```
 
-Both builds use the fixed server address above. Plain HTTP is allowed only to `*.ts.net` (Tailscale encrypts it) in release, and to anything in debug. The debug build also shows two small "debug tap" links on the waiting-for-card screen so you can test without a card.
+Both builds use the server address set at build time (see above). Plain HTTP is allowed only to `*.ts.net` (Tailscale encrypts it) in release, and to anything in debug. The debug build also shows two small "debug tap" links on the waiting-for-card screen so you can test without a card.
 
 ## How cards are identified
 
@@ -151,3 +151,11 @@ Every terminal has a **display page**: a screen next to the reader that shows ea
 - Blocked cards and unregistered tags are refused with a clear message and change nothing.
 - No offline mode. If the connection drops during a charge, the phone says it couldn't confirm: the card may already have been credited, so the operator taps again (the server answers once) or checks History before charging again.
 - A paired phone stays paired until it is revoked in admin or unpaired on the phone. Anyone holding an unlocked paired phone can charge points, so revoke a lost phone straight away. Admin sessions last 12 hours and end at once when a password is reset or an account is switched off. Admin login and pairing lock out for 15 minutes after 10 wrong attempts.
+
+## Security note
+
+The server speaks plain HTTP unless you put HTTPS in front of it. The ESP32 readers (and the debug app) send card UIDs, tokens and the admin login unencrypted, so run it only on a network you trust (a home or office LAN, or Tailscale) or behind an HTTPS reverse proxy. Card UIDs can be cloned with cheap hardware, which is fine for low-value points but not for money. Use a long random `JWT_SECRET`, a strong admin password, and revoke lost phones and readers straight away.
+
+## License
+
+[MIT](LICENSE)
