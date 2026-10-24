@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -14,6 +16,14 @@ val commitCount: Int = runCatching {
     providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
 }.getOrDefault(1)
 
+// The server the app talks to. Put `pont.baseUrl=http://your-server:3000` in android/local.properties (git-ignored)
+// or pass -Ppont.baseUrl=...; without either, the app points at the Android emulator's host machine.
+val baseUrl: String = providers.gradleProperty("pont.baseUrl").orNull
+    ?: Properties().apply {
+        rootProject.file("local.properties").takeIf { it.exists() }?.reader()?.use { load(it) }
+    }.getProperty("pont.baseUrl")
+    ?: "http://10.0.2.2:3000"
+
 android {
     namespace = "com.pont.atm"
     compileSdk = 36
@@ -26,10 +36,10 @@ android {
         versionName = "0.1.$commitCount"
     }
     buildTypes {
-        debug { buildConfigField("String", "DEFAULT_BASE_URL", "\"http://your-machine.your-tailnet.ts.net:3000\"") }
+        debug { buildConfigField("String", "DEFAULT_BASE_URL", "\"$baseUrl\"") }
         release {
             isMinifyEnabled = false
-            buildConfigField("String", "DEFAULT_BASE_URL", "\"http://your-machine.your-tailnet.ts.net:3000\"")
+            buildConfigField("String", "DEFAULT_BASE_URL", "\"$baseUrl\"")
         }
     }
     compileOptions {
