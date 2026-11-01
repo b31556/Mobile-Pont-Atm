@@ -104,7 +104,7 @@
     $('reader').textContent = s.name || '';
     $('idle-sub').textContent = s.mode === 'presence'
       ? [s.direction === 'in' ? 'Sign in' : s.direction === 'out' ? 'Sign out' : 'Sign in or out', s.zoneName].filter(Boolean).join(' · ')
-      : '';
+      : s.mode === 'info' ? 'Hold your card here to see your points' : '';
     if (stage.dataset.state === 'idle') showIdle();
     updateSoundButton();
   }

@@ -38,7 +38,7 @@ export function renewDisplayCode(db: Db, terminalId: string): string {
 }
 
 /** Hands what a tap endpoint answered to the terminal's display page, if it means something to a person. */
-export function publishTap(app: FastifyInstance, terminalId: string | undefined, mode: 'fixed' | 'presence' | 'atm', answer: { status: number; body: object }) {
+export function publishTap(app: FastifyInstance, terminalId: string | undefined, mode: 'fixed' | 'presence' | 'atm' | 'info', answer: { status: number; body: object }) {
   if (!terminalId) return;
   const event = eventFor(answer, mode);
   if (event) app.displayHub.publish(terminalId, event);

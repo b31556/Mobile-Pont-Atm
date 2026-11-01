@@ -20,10 +20,12 @@ describe('admin website', () => {
     expect(css.headers['content-type']).toContain('text/css');
   });
 
-  it('redirects / to /admin/', async () => {
+  it('/ is the home page that links to the admin, the app page and the display', async () => {
     const { app } = await makeApp();
     const res = await app.inject({ method: 'GET', url: '/' });
-    expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe('/admin/');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    for (const href of ['/admin/', '/app', '/display']) expect(res.body).toContain(`href="${href}"`);
+    expect(res.headers['cache-control']).toBe('no-cache');
   });
 });

@@ -57,7 +57,7 @@ export function registerTerminals(app: FastifyInstance) {
     const b = (req.body ?? {}) as { text?: unknown; mode?: unknown; zoneId?: unknown; direction?: unknown; expiresInMinutes?: unknown };
     const parsed = parseTerminalLines(b.text);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
-    if (b.mode !== 'atm' && b.mode !== 'presence') return reply.code(400).send({ error: 'mode must be atm or presence' });
+    if (b.mode !== 'atm' && b.mode !== 'presence' && b.mode !== 'info') return reply.code(400).send({ error: 'mode must be atm, presence or info' });
     const minutes = b.expiresInMinutes;
     if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > MAX_EXPIRY_MINUTES) {
       return reply.code(400).send({ error: `The codes must last from 1 minute to ${MAX_EXPIRY_MINUTES / 60 / 24} days` });
@@ -93,8 +93,8 @@ export function registerTerminals(app: FastifyInstance) {
     const t = db.prepare('select zone_id, kind from terminals where id=? and active=1').get(id) as { zone_id: string | null; kind: string } | undefined;
     if (!t) return reply.code(404).send({ error: 'Terminal not found' });
     if (b.mode !== undefined) {
-      const allowed = t.kind === 'device' ? ['presence', 'fixed'] : ['atm', 'presence'];
-      if (!allowed.includes(b.mode)) return reply.code(400).send({ error: t.kind === 'device' ? 'A reader can be in check-in (presence) or fixed-amount mode' : 'A phone can be in ATM or check-in (presence) mode' });
+      const allowed = t.kind === 'device' ? ['presence', 'fixed', 'info'] : ['atm', 'presence', 'info'];
+      if (!allowed.includes(b.mode)) return reply.code(400).send({ error: t.kind === 'device' ? 'A reader can be in check-in (presence), fixed-amount or info kiosk mode' : 'A phone can be in ATM, check-in (presence) or info kiosk mode' });
     }
     if (b.displayBeep !== undefined && typeof b.displayBeep !== 'boolean') return reply.code(400).send({ error: 'displayBeep must be true or false' });
     if (b.chargeLimitHour !== undefined) {

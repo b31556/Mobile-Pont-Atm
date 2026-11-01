@@ -151,7 +151,8 @@ describe('attempt limits', () => {
   it('clients behind a trusted proxy are counted separately by forwarded address', async () => {
     const { buildApp } = await import('../src/app.js');
     const { openDb } = await import('../src/db.js');
-    const app = buildApp({ db: openDb(':memory:'), jwtSecret: 's', trustProxy: true });
+    const { mkdtempSync } = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+    const app = buildApp({ db: openDb(':memory:'), jwtSecret: 's', trustProxy: true, dataDir: mkdtempSync(join(tmpdir(), 'pont-')) });
     await app.ready();
     const pair = (ip: string) => app.inject({ method: 'POST', url: '/pair', headers: { 'x-forwarded-for': ip }, payload: { code: '000000', device: 'x', appVersion: '1' } });
     for (let i = 0; i < 10; i++) await pair('10.0.0.1');

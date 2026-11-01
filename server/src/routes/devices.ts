@@ -106,7 +106,7 @@ export function registerDevices(app: FastifyInstance) {
     const name = (b.name ?? '').trim();
     if (!name) return reply.code(400).send({ error: 'Give the reader a name' });
     const mode = b.mode ?? 'fixed';
-    if (!['fixed', 'presence'].includes(mode)) return reply.code(400).send({ error: 'mode must be fixed or presence' });
+    if (!['fixed', 'presence', 'info'].includes(mode)) return reply.code(400).send({ error: 'mode must be fixed, presence or info' });
     const terminalId = randomUUID();
     db.transaction(() => {
       db.prepare("insert into terminals(id,name,place,active,mode,kind,zone_id) values(?,?,?,1,?,'device',?)")

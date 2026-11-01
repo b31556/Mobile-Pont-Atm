@@ -121,6 +121,9 @@ static void testCheckInPlans() {
   // fixed-amount mode still shows the balance after a grant, and after "too soon" or a limit
   CHECK(planFor("granted", false).showBalance); CHECK(planFor("cooldown", false).showBalance); CHECK(planFor("limit_uses", false).showBalance);
   CHECK(planFor("cooldown").showBalance);                              // the default is fixed-amount mode
+  // an info kiosk: just the balance, after every tap, and in any mode flag
+  CHECK(planFor("info").showBalance); CHECK(planFor("info").word[0] == '\0'); CHECK(planFor("info").kind == Kind::Good); CHECK(!planFor("info").blink);
+  CHECK(planFor("info", false).showBalance);
 }
 
 static void testQueue() {
@@ -175,6 +178,9 @@ static void testQueuePlan() {
   q.clear(); queuePlan(q, planFor("out", true), 70);
   CHECK(stepCount(q, &total, first) == 2); CHECK(total >= WORD_MS + BALANCE_MS);
   // too soon in fixed-amount mode: the word, then the balance; in check-in mode just the word
+  q.clear(); queuePlan(q, planFor("info"), 56); CHECK(stepCount(q, &total, first) == 1); CHECK_SEG(first, 0, 0, 0x6D, 0x7D);   // an info tap shows "  56" and nothing else
+  q.clear(); queuePlan(q, planFor("info"), 0); CHECK(stepCount(q, &total, first) == 1); CHECK_SEG(first, 0, 0, 0, 0x3F);       // a card with no points shows 0
+  q.clear(); queuePlan(q, planFor("info"), 123456); CHECK(stepCount(q, &total, first) == scrollPositions(6));              // a long balance scrolls
   q.clear(); queuePlan(q, planFor("cooldown", false), 56); CHECK(stepCount(q, &total, first) == 2);
   q.clear(); queuePlan(q, planFor("cooldown", true), 56);  CHECK(stepCount(q, &total, first) == 1);
   // a balance is never shown when the plan has none, whatever number is passed

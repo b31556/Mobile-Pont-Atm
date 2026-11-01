@@ -99,12 +99,14 @@ struct Plan {
 
 /**
  * The words for what a card tap did, as the server names it. In check-in mode ([checkInMode]) a balance follows
- * only when someone signs out, which is when points are paid; a fixed-amount reader shows it after every grant.
+ * only when someone signs out, which is when points are paid; a fixed-amount reader shows it after every grant;
+ * an info kiosk shows it after every tap.
  */
 inline Plan planFor(const char* action, bool checkInMode = false) {
   struct Row { const char* action; Plan plan; };
   static const Row rows[] = {
     {"granted",      {"",     true,  Kind::Good,    false}},
+    {"info",         {"",     true,  Kind::Good,    false}},    // an info kiosk: only the balance, nothing was given or changed
     {"in",           {"In",   false, Kind::Good,    false}},    // signing in: the word only
     {"out",          {"OUt",  true,  Kind::Good,    false}},
     {"expired_in",   {"In",   false, Kind::Good,    false}},

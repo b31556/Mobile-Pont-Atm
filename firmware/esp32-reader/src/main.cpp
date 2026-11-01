@@ -2,7 +2,8 @@
 //
 // It joins WiFi, introduces itself to the server (POST /device/hello) and waits to be approved in the admin
 // site, showing a 4-digit code on its display meanwhile. Once approved it works as the admin has set it up:
-// a fixed-amount reader (everybody who taps gets the same points) or a check-in point (sign in / out).
+// a fixed-amount reader (everybody who taps gets the same points), a check-in point (sign in / out) or an info
+// kiosk (a tap only shows the card's points).
 // While a tap is read and answered a four-step bar fills the display (a line per digit); then it shows the balance.
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -230,7 +231,7 @@ void handleCard(const char* uid) {
   out["idempotencyKey"] = makeKey();       // the same key on every retry, so a lost answer can't give points twice
   String payload, answer;
   serializeJson(out, payload);
-  const String path = (mode == "presence") ? "/presence/tap" : "/fixed/tap";
+  const String path = (mode == "presence") ? "/presence/tap" : (mode == "info") ? "/info/tap" : "/fixed/tap";
   int code = 0;
   for (int attempt = 0; attempt < 3 && code == 0; attempt++) {
     code = postJson(path, payload, answer, true, showProgress);

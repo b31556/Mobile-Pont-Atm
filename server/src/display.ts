@@ -75,6 +75,28 @@ export class DisplayHub {
   }
 }
 
+export interface HistoryLike { at?: string; kind?: string; amount?: number; place?: string; note?: string | null; stornoed?: boolean }
+
+/** "5 minutes ago", "3 hours ago", "yesterday", "4 days ago": no clock time, so the server's time zone never shows. */
+export function ago(iso: string | undefined, nowMs: number): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (Number.isNaN(t)) return '';
+  const min = Math.max(0, Math.round((nowMs - t) / 60000));
+  if (min < 1) return 'just now';
+  if (min < 60) return `${plural(min, 'minute')} ago`;
+  if (min < 1440) return `${plural(Math.round(min / 60), 'hour')} ago`;
+  const days = Math.round(min / 1440);
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
+/** One line of a card's history for a display: "+8 · Bar 2 · 5 minutes ago". */
+export function historyLine(h: HistoryLike, nowMs: number): string {
+  const amount = typeof h.amount === 'number' ? (h.amount > 0 ? `+${h.amount}` : `−${Math.abs(h.amount)}`) : '';
+  const what = h.kind === 'storno' ? 'Refund' : h.kind === 'adjust' ? 'Adjustment' : h.kind === 'presence' ? 'Check-out' : '';
+  const parts = [amount, what, h.place || '', h.kind === 'presence' || h.kind === 'adjust' ? h.note ?? '' : '', ago(h.at, nowMs)].filter(Boolean);
+  return (h.stornoed ? 'Reversed: ' : '') + parts.join(' · ');
+}
+
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 /** "40 seconds", "5 minutes", "4 hours". */
@@ -93,7 +115,7 @@ interface Answer { status: number; body: any }   // eslint-disable-line @typescr
  * Turns what a tap endpoint answered into what the display page shows, or null if it means nothing to a person
  * standing there. [mode] says which endpoint answered: the same word ("cooldown") reads differently in each.
  */
-export function eventFor(r: Answer, mode: 'fixed' | 'presence' | 'atm'): NewEvent | null {
+export function eventFor(r: Answer, mode: 'fixed' | 'presence' | 'atm' | 'info'): NewEvent | null {
   const b = r.body ?? {};
   if (r.status === 404 && b.code === 'unknown_card') return { tone: 'refused', headline: 'Card not registered', details: ['An admin has been told.'], balance: null, card: null, sound: 'refused' };
   if (r.status === 403 && b.code === 'card_blocked') {
@@ -107,6 +129,12 @@ export function eventFor(r: Answer, mode: 'fixed' | 'presence' | 'atm'): NewEven
   const balance = typeof c.balance === 'number' ? c.balance : null;
   const zone = b.zone?.name ? `Zone: ${b.zone.name}` : null;
   const lines = (...l: (string | null | false)[]) => l.filter((x): x is string => !!x);
+
+  if (mode === 'info') {   // an info kiosk: the points big, the latest things that happened below
+    if (b.action !== 'info') return null;
+    const lines = (Array.isArray(b.history) ? b.history : []).slice(0, 5).map((h: HistoryLike) => historyLine(h, Date.now()));
+    return { tone: 'good', headline: balance === null ? 'Your points' : plural(balance, 'point'), details: lines.length ? lines : ['Nothing yet'], balance: null, card, sound: 'success' };
+  }
 
   if (mode === 'atm') {
     if (!b.transaction) return null;

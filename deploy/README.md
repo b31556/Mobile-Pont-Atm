@@ -10,7 +10,7 @@ Runs on `your-server` behind nginx, the same way as the other sites there.
 | Service | `pont-atm.service` (user `pont`, listens on `127.0.0.1:3000` only) |
 | nginx | `/etc/nginx/sites-available/pont.example.com`, linked from `sites-enabled` |
 | Certificate | certbot, RSA key (the readers need RSA), renews by itself and reloads nginx |
-| Android app download | `/var/www/pont/pont-atm.apk`, served at `https://pont.example.com/app` |
+| Android apps | `/var/lib/pont/downloads/` (published with `deploy/publish-apps.sh`), offered at `https://pont.example.com/app` |
 
 ## Update the server
 
@@ -27,18 +27,18 @@ ssh $H "cd /opt/pont/releases/$SHA/server && runuser -u pont -- env HOME=/var/li
 
 To go back, point `current` at the previous release folder and restart the service. The database is never touched by an update (new columns are added when the server starts).
 
-## Update the Android app
+## Publish the Android apps
+
+Two apps are offered at `https://pont.example.com/app`: **Pont Card** (for card holders, module `:user`, shown first and big) and **Pont Terminal** (for staff phones, module `:app`). One command builds both for the server, signs them and uploads them:
 
 ```sh
-cd android
-JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=$HOME/Android/Sdk ./gradlew assembleRelease -Ppont.baseUrl=https://pont.example.com
-BT=$HOME/Android/Sdk/build-tools/36.1.0
-$BT/zipalign -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk /tmp/aligned.apk
-KSPASS="$(cat ~/.config/pont-atm/release-keystore.pass)" $BT/apksigner sign --ks ~/.config/pont-atm/release.keystore --ks-pass env:KSPASS --key-pass env:KSPASS --out /tmp/pont-atm.apk /tmp/aligned.apk
-scp /tmp/pont-atm.apk root@your-server:/var/www/pont/pont-atm.apk
+deploy/publish-apps.sh            # build, sign, upload, then download them again to check
+deploy/publish-apps.sh --dry-run  # build and sign only
 ```
 
-**Keep `~/.config/pont-atm/release.keystore` and its password file safe and backed up.** Phones only accept an update signed with the same key: if it is lost, every phone has to uninstall and reinstall the app.
+The files go to `/var/lib/pont/downloads/` (`pont-card.apk`, `pont-terminal.apk`) and `apps.json` is written last; the page reads it to show the version, size and checksum. The page is served by the app itself, so nothing is needed in nginx.
+
+**Keep `~/.config/pont-atm/release.keystore` and its password file safe and backed up.** Phones only accept an update signed with the same key: if it is lost, every phone has to uninstall and reinstall the apps.
 
 ## Readers
 

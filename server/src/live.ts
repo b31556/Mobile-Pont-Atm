@@ -142,6 +142,7 @@ export function changeFor(method: string, url: string, status: number): { topics
   const under = (p: string) => path === p || path.startsWith(p + '/');
   // A tap on a reader or check-in phone also records unregistered cards (answered 404) and refusals, so it counts unless the server failed.
   if (path === '/fixed/tap' || path === '/presence/tap') return status < 500 ? { topics: ['cards', 'transactions', 'presence', 'suggestions', 'terminals'] } : null;
+  if (path === '/info/tap') return status < 500 ? { topics: ['suggestions', 'terminals'] } : null;   // reads only; an unregistered card is added to the suggestions
   if (status >= 400) return null;
   if (path === '/presence/preview' || path === '/cards/import/check') return null;   // a calculation, not a change
   if (path === '/heartbeat') return { topics: ['terminals'], throttle: { key: 'heartbeat', everyMs: 20_000 } };

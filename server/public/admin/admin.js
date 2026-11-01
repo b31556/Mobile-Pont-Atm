@@ -243,20 +243,22 @@ function readersPane() {
     ${pending.map(d => `<form class="srow" data-approve="${esc(d.id)}"><span class="paircode" title="This code is on the reader's display">${esc(d.code || '----')}</span><code class="mono uid">${esc(d.id)}</code>
       <span class="swhen">${esc(d.ip || '?')} · firmware ${esc(d.firmware || '?')} · ${d.online ? 'online' : 'last seen ' + esc(when(d.lastSeen))}${warnDenied(d)}</span>
       <input name="name" class="search" placeholder="Name, e.g. Entrance" required maxlength="60" aria-label="Name for ${esc(d.id)}" style="min-width:150px">
-      <select name="mode" class="modesel" aria-label="Mode"><option value="fixed">Fixed amount</option><option value="presence">Check-in</option></select>
+      <select name="mode" class="modesel" aria-label="Mode"><option value="fixed">Fixed amount</option><option value="presence">Check-in</option><option value="info">Info kiosk</option></select>
       <span class="rowbtns"><button class="btn green sm">Approve</button><button class="btn line sm" type="button" data-act="rejectdevice" data-id="${esc(d.id)}">Reject</button></span></form>`).join('')}</section>` : '';
   const cards = terminals.length ? terminals.map(t => {
     const d = deviceOf(t);
     const online = d?.online;
     const f = t.fixed;
-    const config = t.mode === 'fixed'
+    const config = t.mode === 'info'
+      ? '<p class="hint">Info kiosk: tapping a card shows its points on the digit display, and everything (photo, points, recent history) on a display page if one is open. Nothing is given or changed.</p>'
+      : t.mode === 'fixed'
       ? `<form class="fixedform" data-reader="${t.id}"><div class="grid3">${FIXED_FIELDS.map(([k, label, attrs, hint]) => `<label class="field"><span>${label}</span><input name="${k}" type="number" step="1" value="${f[k] ?? ''}" ${attrs}>${hint ? `<small>${hint}</small>` : ''}</label>`).join('')}</div>
           <p class="err" role="alert"></p><button class="btn green sm">Save rules</button></form>`
       : `<div class="pointsel inline-sel"><label class="field"><span>Zone</span><select class="modesel" data-zone-for="${t.id}">${state.zones.map(z => `<option value="${z.id}"${z.id === t.zoneId ? ' selected' : ''}>${esc(z.name)}</option>`).join('')}</select></label>
           <label class="field"><span>Point type</span><select class="modesel" data-dir-for="${t.id}"><option value="toggle"${t.direction === 'toggle' ? ' selected' : ''}>Toggle (in / out)</option><option value="in"${t.direction === 'in' ? ' selected' : ''}>Sign in only</option><option value="out"${t.direction === 'out' ? ' selected' : ''}>Sign out only</option></select></label></div>
           <p class="hint">The rules of the zone are edited under Check-in.</p>`;
     return `<section class="panel reader"><div class="rhead"><div><h2>${esc(t.name)}</h2><p class="hint">${esc(t.ip || d?.ip || 'no address yet')}${warnDenied(d)} · firmware ${esc(t.firmware || d?.firmware || '?')} · ${online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline' + (d ? ', seen ' + esc(when(d.lastSeen)) : '') + '</span>'}</p></div>
-        <span class="sp"></span><div class="rowbtns"><label class="field modefield"><span>Mode</span><select class="modesel" data-rmode-for="${t.id}"><option value="fixed"${t.mode === 'fixed' ? ' selected' : ''}>Fixed amount</option><option value="presence"${t.mode === 'presence' ? ' selected' : ''}>Check-in</option></select></label>
+        <span class="sp"></span><div class="rowbtns"><label class="field modefield"><span>Mode</span><select class="modesel" data-rmode-for="${t.id}"><option value="fixed"${t.mode === 'fixed' ? ' selected' : ''}>Fixed amount</option><option value="presence"${t.mode === 'presence' ? ' selected' : ''}>Check-in</option><option value="info"${t.mode === 'info' ? ' selected' : ''}>Info kiosk</option></select></label>
         <button class="btn line sm" data-act="revokedevice" data-id="${esc(d?.id || '')}" data-name="${esc(t.name)}">Revoke</button></div></div>
       ${config}<p class="hint">Given today: <b>${t.givenToday}</b> points</p>
       <div class="displaylink"><span class="lbl">Display page</span>
@@ -274,12 +276,12 @@ function readersPane() {
 
 function terminalsPane() {
   const list = (state.data.terminals || []).filter(t => t.kind !== 'device');
-  return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. In ATM mode it gives points for an amount. In Check-in mode it signs people in and out: pick its zone (which decides the rules) and whether it signs in, signs out, or toggles. A phone follows a mode change within about 30 seconds.</p></div><span class="sp"></span>
+  return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. In ATM mode it gives points for an amount. In Info kiosk mode it shows a card's points and history when tapped and changes nothing. In Check-in mode it signs people in and out: pick its zone (which decides the rules) and whether it signs in, signs out, or toggles. A phone follows a mode change within about 30 seconds.</p></div><span class="sp"></span>
     <button class="btn line" data-act="newbatch">Pair many phones</button><button class="btn green" data-act="newterm">Pair a phone</button></div>
     <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Mode</th><th>Check-in point</th><th>Phone</th><th>App</th><th>Given today</th><th title="Most points this phone can give in any hour. Empty means no limit.">Hourly limit</th><th></th></tr></thead><tbody>
     ${list.length ? list.map(t => `<tr><td><b>${esc(t.name)}</b><div style="font-size:12px;color:var(--ink-3)">${esc(t.place)}</div></td>
       <td>${t.online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline</span>'}<div style="font-size:12px;color:var(--ink-3)">${t.lastSeen ? esc(when(t.lastSeen)) : 'Never seen'}</div></td>
-      <td><select class="modesel" data-mode-for="${t.id}" aria-label="Mode of ${esc(t.name)}"><option value="atm"${t.mode === 'atm' ? ' selected' : ''}>ATM</option><option value="presence"${t.mode === 'presence' ? ' selected' : ''}>Check-in</option></select></td>
+      <td><select class="modesel" data-mode-for="${t.id}" aria-label="Mode of ${esc(t.name)}"><option value="atm"${t.mode === 'atm' ? ' selected' : ''}>ATM</option><option value="presence"${t.mode === 'presence' ? ' selected' : ''}>Check-in</option><option value="info"${t.mode === 'info' ? ' selected' : ''}>Info kiosk</option></select></td>
       <td>${t.mode === 'presence' ? `<div class="pointsel"><select class="modesel" data-zone-for="${t.id}" aria-label="Zone of ${esc(t.name)}">${state.zones.map(z => `<option value="${z.id}"${z.id === t.zoneId ? ' selected' : ''}>${esc(z.name)}</option>`).join('')}</select>
         <select class="modesel" data-dir-for="${t.id}" aria-label="Point type of ${esc(t.name)}"><option value="toggle"${t.direction === 'toggle' ? ' selected' : ''}>Toggle (in / out)</option><option value="in"${t.direction === 'in' ? ' selected' : ''}>Sign in only</option><option value="out"${t.direction === 'out' ? ' selected' : ''}>Sign out only</option></select></div>` : '<span style="color:var(--ink-3)">—</span>'}</td>
       <td style="color:var(--ink-2)">${esc(t.device || '—')}</td>
@@ -356,7 +358,7 @@ function modalView() {
     <p class="note">One phone per line: the <b>place</b> first, then the <b>terminal name</b>. The first word is the place. For a place of several words, put a <code>|</code> between the two, like <code>Main hall | Bar 2</code> (two spreadsheet columns pasted in work too).</p>
     <label class="field" style="text-align:left">Phones<textarea name="text" id="b-text" required spellcheck="false" placeholder="Floorball Terminal 1&#10;Floorball Terminal 2&#10;Checkin Anna's Terminal"></textarea></label>
     <div class="grid2" style="text-align:left">
-      <label class="field">Mode<select name="mode" id="b-mode"><option value="atm">ATM (gives points)</option><option value="presence">Check-in / check-out</option></select></label>
+      <label class="field">Mode<select name="mode" id="b-mode"><option value="atm">ATM (gives points)</option><option value="presence">Check-in / check-out</option><option value="info">Info kiosk (shows points)</option></select></label>
       <label class="field">Pairing codes work for<select name="minutes">${mins.map(([v, l]) => `<option value="${v}"${v === 60 ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
     </div>
     <div class="grid2" id="b-checkin" hidden style="text-align:left">
@@ -470,7 +472,7 @@ root.addEventListener('submit', async e => {
       const r = await api('POST', '/terminals/batch', body);
       const zone = state.zones.find(z => z.id === body.zoneId)?.name;
       const dir = { toggle: 'sign in or out', in: 'sign in only', out: 'sign out only' }[body.direction];
-      state.modal = { kind: 'batchcodes', rows: r.terminals, expiresAt: r.expiresAt, modeLabel: mode === 'atm' ? 'ATM' : `Check-in (${dir}${zone ? ', ' + zone : ''})` };
+      state.modal = { kind: 'batchcodes', rows: r.terminals, expiresAt: r.expiresAt, modeLabel: mode === 'atm' ? 'ATM' : mode === 'info' ? 'Info kiosk' : `Check-in (${dir}${zone ? ', ' + zone : ''})` };
       await refresh();
     } catch (ex) { err.textContent = ex.message; }
   } else if (f.id === 'staffform') {
@@ -504,7 +506,7 @@ root.addEventListener('change', async e => {
     await guard(async () => { await api('PATCH', '/terminals/' + e.target.dataset.rmodeFor, { mode: e.target.value }); await refresh(); toast('Mode changed. The reader follows within 30 seconds.'); });
   }
   if (e.target.dataset && e.target.dataset.modeFor) {
-    await guard(async () => { const t = await api('PATCH', '/terminals/' + e.target.dataset.modeFor, { mode: e.target.value }); await refresh(); toast(t.name + ' is now in ' + (t.mode === 'presence' ? 'Check-in' : 'ATM') + ' mode.'); });
+    await guard(async () => { const t = await api('PATCH', '/terminals/' + e.target.dataset.modeFor, { mode: e.target.value }); await refresh(); toast(t.name + ' is now in ' + (t.mode === 'presence' ? 'Check-in' : t.mode === 'info' ? 'Info kiosk' : 'ATM') + ' mode.'); });
   }
   if ((e.target.id === 'imp-files' || e.target.id === 'imp-folder') && state.import) { addImportFiles([...e.target.files]); e.target.value = ''; }
   if (e.target.id === 'b-mode') document.getElementById('b-checkin').hidden = e.target.value !== 'presence';

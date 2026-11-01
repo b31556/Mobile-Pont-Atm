@@ -17,6 +17,9 @@ import { registerPresence } from './routes/presence.js';
 import { registerDevices } from './routes/devices.js';
 import { registerFixed } from './routes/fixed.js';
 import { registerDisplay } from './routes/display.js';
+import { registerInfo } from './routes/info.js';
+import { registerPublic } from './routes/public.js';
+import { registerSite } from './routes/site.js';
 import { DisplayHub } from './display.js';
 import { LiveHub, registerLive, type LiveOptions } from './live.js';
 
@@ -51,7 +54,6 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(jwt, { secret: opts.jwtSecret });
   app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 } });
   app.register(fastifyStatic, { root: join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'admin'), prefix: '/admin/' });
-  app.get('/', async (_req, reply) => reply.redirect('/admin/'));
   registerAuth(app);
   registerLive(app, app.live);
   registerStaff(app);
@@ -64,6 +66,9 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   registerDevices(app);
   registerFixed(app);
   registerDisplay(app, opts.dataDir ?? './data');
+  registerInfo(app);
+  registerPublic(app, opts.dataDir ?? './data');
+  registerSite(app, opts.dataDir ?? './data');
   app.register(fastifyStatic, { root: join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'display'), prefix: '/display-assets/', decorateReply: false });
   app.get('/health', async () => ({ ok: true }));
   return app;
