@@ -14,35 +14,26 @@ async function make() {
 const get = (app: Awaited<ReturnType<typeof make>>['app'], url: string) => app.inject({ method: 'GET', url });
 
 describe('the home page', () => {
-  it('lists the admin, the app page and the display', async () => {
+  it('lists the app page, the program and the display, and not the admin', async () => {
     const { app } = await make();
     const res = await get(app, '/');
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
-    const order = ['/admin/', '/app', '/display'].map(h => res.body.indexOf(`href="${h}"`));
+    const order = ['/app', '/program', '/display'].map(h => res.body.indexOf(`href="${h}"`));
     expect(order.every(i => i > 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(res.body).not.toContain('href="/admin/"');
   });
 });
 
 describe('the app page', () => {
-  it('offers Pont Card first and bigger, and Pont Terminal after it', async () => {
+  it('offers Pont Card, big, and nothing else', async () => {
     const { app } = await make();
     const res = await get(app, '/app');
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
-    const card = res.body.indexOf('id="dl-card"'), terminal = res.body.indexOf('id="dl-terminal"');
-    expect(card).toBeGreaterThan(0);
-    expect(terminal).toBeGreaterThan(card);
     expect(res.body).toContain('class="btn big" id="dl-card"');
-    expect(res.body).toContain('class="btn alt" id="dl-terminal"');
-  });
-  it('offers Pont Admin last, and the page script fills in its button', async () => {
-    const { app } = await make();
-    const body = (await get(app, '/app')).body;
-    expect(body.indexOf('id="dl-admin"')).toBeGreaterThan(body.indexOf('id="dl-terminal"'));
-    expect(body).toContain('id="meta-admin"');
-    expect((await get(app, '/site-assets/app.js')).body).toContain("['admin', 'dl-admin', 'meta-admin', 'Pont Admin']");
+    expect(res.body.match(/class="btn[^"]*" id="dl-/g)).toHaveLength(1);
   });
   it('/app/ goes to /app, and the page files are served', async () => {
     const { app } = await make();
@@ -115,16 +106,36 @@ describe('the program planner page', () => {
   });
 });
 
-describe('the app page says what each app really does', () => {
-  it('describes one card, the program, and the staff and admin tools', async () => {
+describe('the app page says what Pont Card really does', () => {
+  it('describes one card, the program and what it cannot do', async () => {
     const { app } = await make();
     const body = (await get(app, '/app')).body;
     expect(body).toMatch(/keeps one card: yours/);
     expect(body).not.toMatch(/kids|more cards/i);
     expect(body).toMatch(/drag them onto your day/);
-    expect(body).toMatch(/Info kiosk/);
-    expect(body).toMatch(/Cancel the last charge/);
-    expect(body).toMatch(/stay signed in for a week/);
+    expect(body).toMatch(/can't give, take or spend points/);
     expect(body).toContain('href="/program"');
+  });
+  it('shows a picture of the app: the program with a plan, and a card with its history', async () => {
+    const { app } = await make();
+    const body = (await get(app, '/app')).body;
+    expect(body).toContain('class="a-line"');
+    expect(body).toContain('DRAG ONTO YOUR DAY');
+    expect(body).toContain('class="a-who"');
+  });
+  it('says nothing about the admin or the staff apps, on any public page', async () => {
+    const { app } = await make();
+    for (const url of ['/', '/app', '/program', '/display']) {
+      const body = (await get(app, url)).body;
+      expect(body, url).not.toMatch(/admin|staff|terminal/i);
+    }
+    const css = (await get(app, '/site-assets/site.css')).body;
+    expect(css).not.toMatch(/\.staff/);
+  });
+  it('the page script only knows the card app', async () => {
+    const { app } = await make();
+    const js = (await get(app, '/site-assets/app.js')).body;
+    expect(js).toContain("['card', 'dl-card', 'meta-card', 'Pont Card']");
+    expect(js).not.toMatch(/terminal|admin/i);
   });
 });

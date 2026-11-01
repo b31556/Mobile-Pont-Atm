@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#12202B">
-<title>Pont apps</title>
+<title>Pont Card</title>
 <link rel="stylesheet" href="/site-assets/site.css">
 </head>
 <body>
 <header class="top">
   <a class="brand" href="/"><span class="coin">P</span>Pont</a>
-  <nav><a href="/">Home</a><a href="/program">Program</a><a href="/admin/">Admin</a><a href="/display">Display</a></nav>
+  <nav><a href="/">Home</a><a href="/program">Program</a></nav>
 </header>
 <main>
 
@@ -34,15 +34,43 @@
       </a>
       <p class="meta" id="meta-card">Android 8 or newer, with NFC.</p>
     </div>
+
+    <!-- what the app looks like: the Program screen with a plan on it, and a card with its history (example people and events) -->
     <div class="art" aria-hidden="true">
-      <div class="phone"><div class="screen">
-        <div class="bar">Pont Card</div>
-        <div class="mini"><div class="av" style="background:#2F6F5E">A</div><div><b>Anna Kovács</b><span>Active</span></div><div class="pts">128</div></div>
-        <div class="tx"><span>Today · Bar 2</span><b>+8</b></div>
-        <div class="tx"><span>Today · Main hall</span><b>+12</b></div>
-        <div class="tx"><span>Yesterday · Snack bar</span><b class="neg">−5</b></div>
-        <div class="tx"><span>Yesterday · Check-out</span><b>+24</b></div>
-      </div></div>
+      <div class="duo">
+        <div class="phone back"><div class="screen app">
+          <div class="a-title">Your card</div>
+          <div class="a-who"><div class="a-av">A</div><div><b>Anna Kovács</b><span>Active</span></div><div class="a-pts"><b>128</b><span>points</span></div></div>
+          <div class="a-h">Today</div>
+          <div class="a-tx"><span>Table tennis<small>Hall · 10:00</small></span><b>+24</b></div>
+          <div class="a-tx"><span>Quiz room<small>Room 12 · 09:20</small></span><b>+16</b></div>
+          <div class="a-tx"><span>Opening show<small>Main hall · 15:00</small></span><b>+10</b></div>
+          <div class="a-h">Yesterday</div>
+          <div class="a-tx"><span>Chess corner<small>Library · check-out</small></span><b>+36</b></div>
+          <div class="a-tx"><span>Snack bar<small>Cafe</small></span><b class="neg">−5</b></div>
+        </div></div>
+        <div class="phone front"><div class="screen app">
+          <div class="a-status">
+            <div><i>With your plan</i><i>need 60</i><b>74 <small>= 42 + 32</small></b><em>OK</em><u><s style="width:57%"></s><t style="width:43%"></t></u></div>
+            <div><i>Day 2 with plan</i><i>need 30</i><b>38 <small>= 6 + 32</small></b><em>OK</em><u><s style="width:16%"></s><t style="width:84%"></t></u></div>
+          </div>
+          <div class="a-tabs"><span class="on">Plan</span><span>Pulse</span><span class="day on2">Day 1</span><span class="day">Day 2</span></div>
+          <div class="a-card">
+            <div class="a-chip">Points per time</div>
+            <h3>Chess corner</h3>
+            <p>Library · open 09:00–13:00</p>
+            <div class="a-big">40 <small>points in the first hour</small></div>
+            <div class="a-hint">↓ DRAG ONTO YOUR DAY</div>
+          </div>
+          <div class="a-line">
+            <span class="a-band"></span>
+            <span class="a-t" style="left:0">09:00</span><span class="a-t" style="left:25%">10:00</span><span class="a-t" style="left:50%">11:00</span><span class="a-t" style="left:75%">12:00</span>
+            <span class="a-blk g" style="left:27%;width:21%">+24</span><span class="a-blk y" style="left:52%;width:16%">+16</span><span class="a-now" style="left:40%"></span>
+          </div>
+          <div class="a-sum">2 planned · 1 h · 3 h free</div>
+          <div class="a-nav"><span>Card</span><b>Program</b></div>
+        </div></div>
+      </div>
     </div>
   </section>
 
@@ -54,46 +82,6 @@
       <div class="step"><b>Add your card</b><span>Open Pont Card, tap “Add a card” and hold your card to the back of the phone.</span></div>
     </div>
     <p class="muted" style="margin-top:14px">iPhone isn't supported yet. The program also opens in any browser, on a phone or a computer: <a href="/program">open the program</a>.</p>
-  </section>
-
-  <section class="card staff" aria-labelledby="term-title">
-    <div class="txt">
-      <span class="badge" style="width:max-content">For staff</span>
-      <h2 id="term-title">Pont Terminal</h2>
-      <p>Turn a staff phone into a card terminal. It needs a pairing code from an admin, once.</p>
-      <ul class="features">
-        <li>Give points: type an amount or tap a preset, then hold the card to the phone</li>
-        <li>Check people in and out of an area, with the time they stayed and the points it paid</li>
-        <li>Info kiosk: a tap shows the card's points, nothing is changed</li>
-        <li>Cancel the last charge, check-in or check-out with one button</li>
-        <li>A card that isn't registered can be suggested to an admin with one tap</li>
-        <li>Shows the card's photo and name at every tap, and keeps a list of recent activity</li>
-      </ul>
-      <p class="meta" id="meta-terminal" style="margin:0">Android 8 or newer, with NFC.</p>
-    </div>
-    <a class="btn alt" id="dl-terminal" href="#" aria-disabled="true" download>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 20h14"/></svg>
-      <span>Download Pont Terminal</span>
-    </a>
-  </section>
-
-  <section class="card staff" aria-labelledby="admin-title">
-    <div class="txt">
-      <span class="badge" style="width:max-content">For admins</span>
-      <h2 id="admin-title">Pont Admin</h2>
-      <p>The admin site as an app, laid out for the phone. You sign in with an admin account.</p>
-      <ul class="features">
-        <li>Everything the admin site has: cards, terminals, readers, check-in areas, transactions, staff and the event program</li>
-        <li>Scan a card to find it, or to fill in its number when adding a card or giving someone a new one</li>
-        <li>Sign in by holding a key (a card or tag) to the phone, and stay signed in for a week</li>
-        <li>Excel exports are saved in your Downloads folder</li>
-      </ul>
-      <p class="meta" id="meta-admin" style="margin:0">Android 8 or newer, with NFC.</p>
-    </div>
-    <a class="btn alt" id="dl-admin" href="#" aria-disabled="true" download>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 20h14"/></svg>
-      <span>Download Pont Admin</span>
-    </a>
   </section>
 
   <details id="checks" hidden>
