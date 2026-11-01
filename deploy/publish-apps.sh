@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the two Android apps, signs them with the release key, and publishes them on the server, where
-# https://<server>/app offers them: "Pont Card" (for card holders, module :user) and "Pont Terminal" (for staff, module :app).
+# https://<server>/app offers them: "Pont Card" (for card holders, module :user), "Pont Terminal" (for staff, module :app) and "Pont Admin" (the admin site with a card scanner, module :admin).
 #
 #   deploy/publish-apps.sh                 build, sign, upload
 #   deploy/publish-apps.sh --no-build      sign and upload the apps built last time
@@ -9,7 +9,7 @@
 #   --host root@server    where to upload (default root@your-server)
 #   --url https://server  the server address built into the apps (default https://pont.example.com)
 #
-# The apps are copied into /var/lib/pont/downloads/ (pont-card.apk, pont-terminal.apk) and apps.json is written last,
+# The apps are copied into /var/lib/pont/downloads/ (pont-card.apk, pont-terminal.apk, pont-admin.apk) and apps.json is written last,
 # so the page never points at a file that is not there yet. Needs the release key made once in ~/.config/pont-atm/
 # (release.keystore and release-keystore.pass). Keep both safe: a phone only accepts an update signed with the same key.
 
@@ -54,6 +54,7 @@ KSPASS="$(cat "$KEYPASS_FILE")"; export KSPASS
 APPS=(
   "card|pont-card.apk|$ROOT/android/user/build/outputs/apk/release/user-release-unsigned.apk"
   "terminal|pont-terminal.apk|$ROOT/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+  "admin|pont-admin.apk|$ROOT/android/admin/build/outputs/apk/release/admin-release-unsigned.apk"
 )
 JSON="{"
 for entry in "${APPS[@]}"; do

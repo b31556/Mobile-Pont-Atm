@@ -246,3 +246,91 @@ tr.struck td:not(:last-child){text-decoration:line-through}
 .tl-legend .sw{width:14px;height:14px;border-radius:4px;display:inline-block}
 .sw.closed,.sw.pos{background:var(--green)}.sw.discarded,.sw.neg{background:#E7807A}.sw.expired,.sw.adjust{background:var(--amber)}.sw.open{background:#2F6FEB}
 .sw.pos,.sw.neg,.sw.adjust{border-radius:50%}
+
+
+
+/* ---------- scan button and sheet (Pont Admin app) ---------- */
+.withbtn{position:relative;display:flex;align-items:center}
+.withbtn input{flex:1;min-width:0;width:100%;padding-right:54px}
+.nfcbtn{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;height:calc(100% - 8px);min-height:34px;border-radius:9px;background:var(--ink);color:#fff;display:grid;place-items:center}
+.nfcbtn:active{background:var(--green-d)}
+.nfcnote{font-size:13px;margin:-6px 0 0;font-weight:600}
+.nfcnote.good{color:var(--green-d)}.nfcnote.bad{color:var(--red)}
+#scan{position:fixed;inset:0;z-index:30;background:rgba(10,20,28,.62);display:grid;align-items:end;justify-items:center}
+.scan-card{width:100%;max-width:480px;background:#fff;border-radius:22px 22px 0 0;padding:26px 22px calc(24px + env(safe-area-inset-bottom));text-align:center;display:grid;gap:12px;justify-items:center;animation:sheet .22s ease-out}
+.scan-card h2{font:800 22px var(--display)}
+.scan-card p{color:var(--ink-2);font-size:14px;max-width:30ch}
+.scan-card .btn{min-width:160px;justify-content:center;margin-top:4px}
+.scan-rings{position:relative;width:96px;height:96px;display:grid;place-items:center}
+.scan-rings::after{content:'';width:34px;height:34px;border-radius:50%;background:var(--amber)}
+.scan-rings i{position:absolute;inset:0;border:3px solid var(--amber);border-radius:50%;opacity:0;animation:ping 2.2s ease-out infinite}
+.scan-rings i:nth-child(2){animation-delay:.73s}.scan-rings i:nth-child(3){animation-delay:1.46s}
+@keyframes ping{0%{transform:scale(.35);opacity:.9}100%{transform:scale(1);opacity:0}}
+@keyframes sheet{from{transform:translateY(40px);opacity:.4}}
+@media (prefers-reduced-motion:reduce){.scan-rings i{animation:none;opacity:.4}.scan-card{animation:none}}
+
+/* ---------- phones ---------- */
+@media (max-width:760px){
+  html,body{font-size:15px}
+  html,body{background:#F7F9FA}
+  .drawer-scrim{z-index:25}.modal-scrim{z-index:26}.atoast{z-index:40}
+  .adm{display:block;min-height:100vh}
+  .side{position:sticky;top:0;z-index:20;height:auto;flex-direction:row;align-items:center;gap:4px;padding:8px 10px;overflow-x:auto;scrollbar-width:none;box-shadow:0 2px 10px #12202B30}
+  .side::-webkit-scrollbar{display:none}
+  .side .brand{padding:0 6px 0 2px;font-size:0;gap:0;flex:none}
+  .side .brand .coin{font-size:14px;width:30px;height:30px}
+  .side button{flex:none;white-space:nowrap;padding:9px 14px;border-radius:999px;font-size:14px}
+  .side button[aria-current=true]{box-shadow:none;background:var(--amber);color:var(--ink)}
+  .side button[aria-current=true] .badge{background:var(--ink);color:#fff}
+  .side .me{margin:0 0 0 auto;padding:0 4px 0 12px;display:flex;align-items:center;gap:12px;flex:none}
+  .side .live{padding:0}
+  .side .me button{padding:6px 4px;border-radius:0;color:#C4D0D8}
+  .pane{padding:16px 14px 40px;overflow:visible;min-height:0}
+  .ph{gap:10px;margin-bottom:14px}
+  .ph>div:first-child{flex:1 1 100%}
+  .ph h1,.rhead2 h1{font-size:26px}
+  .ph .sp{display:none}
+  .searchbox{flex:1 1 100%}
+  .search{min-width:0;width:100%;font-size:16px}
+  .ph>.btn{flex:1 1 0;justify-content:center;padding:0 10px}
+  .btn{height:44px}.btn.sm{height:36px}
+  .field input,.field select,.field textarea,.search,.inline input{font-size:16px}
+  .stats{gap:8px;margin-bottom:14px}
+  .stat{padding:10px 12px;border-radius:12px}
+  .stat b{font-size:22px}.stat span{font-size:12px;line-height:1.25;display:block}
+  .tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  /* the cards table becomes a list of cards */
+  .cardtable{min-width:0}
+  .cardtable thead{display:none}
+  .cardtable tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"who pts" "uid st" "last last" "act act";gap:4px 12px;padding:12px 14px;border-bottom:1px solid #EDF0F2;align-items:center}
+  .cardtable tbody tr:last-child{border-bottom:0}
+  .cardtable td{padding:0;border:0;min-width:0}
+  .cardtable td:nth-child(1){grid-area:who}.cardtable td:nth-child(2){grid-area:uid}.cardtable td:nth-child(3){grid-area:pts;text-align:right}
+  .cardtable td:nth-child(3).num{font-size:22px}
+  .cardtable td:nth-child(4){grid-area:st;text-align:right}.cardtable td:nth-child(5){grid-area:last;font-size:12.5px;color:var(--ink-3)!important}
+  .cardtable td:nth-child(5)::before{content:'Last used: '}
+  .cardtable td:nth-child(6){grid-area:act;margin-top:6px}
+  .cardtable .rowbtns{justify-content:flex-start}.cardtable .rowbtns .btn{flex:1}
+  .cardtable td.empty{grid-column:1/-1}
+  .cardtable tr:has(td.empty){display:block}
+  .suggest{padding:14px}
+  .srow{gap:8px}.srow .rowbtns{flex-wrap:wrap;justify-content:flex-start}
+  .drawer{width:100%;padding:18px 16px calc(18px + env(safe-area-inset-bottom));gap:12px}
+  .drawer h2{font-size:22px}
+  .modal{width:94vw;max-width:94vw;padding:20px 18px;max-height:92vh;overflow:auto}
+  .modal.wide{width:96vw}
+  .code{font-size:38px}
+  .alogin{width:100%;max-width:360px;padding:24px}
+  .login-wrap{padding:16px}
+  .grid2{grid-template-columns:minmax(0,1fr)}
+  .twocol{grid-template-columns:minmax(0,1fr)}.twocol>*{min-width:0}
+  .panel input,.panel select{max-width:100%;min-width:0}
+  .zonechip{flex:1 1 140px;min-width:0}
+  .rhead2{gap:12px}.rhead2 .av.big,.rhead2 img.av{width:64px;height:64px}
+  .rstats{grid-template-columns:1fr 1fr}
+  .rtile{padding:12px}.rtile b{font-size:22px}
+  .tl-labels{width:84px}
+  .panel{padding:14px}
+  .displaylink input[readonly]{min-width:0;flex:1 1 100%}
+  .atoast{bottom:calc(16px + env(safe-area-inset-bottom));max-width:92vw;text-align:center}
+}

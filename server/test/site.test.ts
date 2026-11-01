@@ -37,6 +37,13 @@ describe('the app page', () => {
     expect(res.body).toContain('class="btn big" id="dl-card"');
     expect(res.body).toContain('class="btn alt" id="dl-terminal"');
   });
+  it('offers Pont Admin last, and the page script fills in its button', async () => {
+    const { app } = await make();
+    const body = (await get(app, '/app')).body;
+    expect(body.indexOf('id="dl-admin"')).toBeGreaterThan(body.indexOf('id="dl-terminal"'));
+    expect(body).toContain('id="meta-admin"');
+    expect((await get(app, '/site-assets/app.js')).body).toContain("['admin', 'dl-admin', 'meta-admin', 'Pont Admin']");
+  });
   it('/app/ goes to /app, and the page files are served', async () => {
     const { app } = await make();
     const r = await get(app, '/app/');

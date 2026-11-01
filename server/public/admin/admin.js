@@ -120,12 +120,12 @@ function cardsPane() {
       <td><div class="rowbtns"><button class="btn line sm" data-act="report" data-id="${c.id}">Report</button><button class="btn line sm" data-act="toggle" data-id="${c.id}">${c.status === 'blocked' ? 'Unblock' : 'Block'}</button></div></td></tr>`).join('')
     : `<tr><td colspan="6" class="empty">${state.q ? 'No card matches “' + esc(state.q) + '”. Try a name or a UID.' : 'No cards yet. Add the first one.'}</td></tr>`;
   return `${suggestionsPanel()}<div class="ph"><div><h1>Cards</h1><p>${active} active, ${all.length - active} blocked</p></div><span class="sp"></span>
-    <input class="search" id="q" placeholder="Search name or UID" value="${esc(state.q)}" aria-label="Search cards">
+    <span class="withbtn searchbox"><input class="search" id="q" placeholder="Search name or UID" value="${esc(state.q)}" aria-label="Search cards">${nfcButton('q')}</span>
     <button class="btn line" data-act="importcards">Import cards</button>
     <button class="btn green" data-act="newcard">Add card</button></div>
     <div class="stats"><div class="stat"><b>${all.reduce((s, c) => s + c.balance, 0)}</b><span>Points on cards</span></div>
     <div class="stat"><b>${given}</b><span>Given today, after storno</span></div><div class="stat"><b>${active}</b><span>Active cards</span></div></div>
-    <div class="tw"><table><thead><tr><th>Holder</th><th>Card UID</th><th>Points</th><th>Status</th><th>Last used</th><th></th></tr></thead><tbody id="rows">${rows}</tbody></table></div>`;
+    <div class="tw"><table class="cardtable"><thead><tr><th>Holder</th><th>Card UID</th><th>Points</th><th>Status</th><th>Last used</th><th></th></tr></thead><tbody id="rows">${rows}</tbody></table></div>`;
 }
 
 function suggestionsPanel() {
@@ -328,7 +328,8 @@ function drawerView() {
       <span><b>Photo</b>Click to choose a JPEG, PNG or WebP up to 2 MB. The terminal shows it after each tap.</span>
       <input id="d-photo" type="file" accept="image/jpeg,image/png,image/webp" class="hidden"></label>
     <label class="field">Holder name<input id="d-name" value="${esc(c.name)}" placeholder="Full name"></label>
-    <label class="field">Card UID<input id="d-uid" class="mono" value="${esc(c.uid)}" placeholder="04:A2:3B:1C"></label>
+    <label class="field">Card UID<span class="withbtn"><input id="d-uid" class="mono" value="${esc(d.uid ?? c.uid)}" placeholder="04:A2:3B:1C">${nfcButton('d-uid')}</span></label>
+    <p class="nfcnote" id="d-nfc" hidden></p>
     <p style="font-size:12px;color:var(--ink-3);margin-top:-6px">On a terminal, tap the card and choose “Suggest for addition”. It then appears under Suggested cards, with its UID ready to copy.</p>
     ${isNew ? '<label class="field">Starting points<input id="d-pts" type="number" min="0" value="0"></label>'
       : `<div class="dsep"></div><div class="inline" style="align-items:center"><div style="flex:1"><b class="num" style="font-size:26px">${c.balance}</b> points</div>${statusPill(c.status)}</div>
@@ -431,12 +432,18 @@ function render() {
   loadPhotos();
   if (state.page === 'presence') refreshPreview();
   if (state.page === 'report') positionTimeline();
+  const here = $('.side [aria-current=true]'); if (here && here.scrollIntoView) here.scrollIntoView({ inline: 'center', block: 'nearest' });   // the menu is a row to scroll on a phone
 }
 
 /* ---------- group pairing export ---------- */
 const localStamp = iso => { const d = new Date(iso), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const batchTable = m => [['Place', 'Terminal', 'Mode', 'Pairing code', 'Valid until'], ...m.rows.map(r => [r.place, r.name, m.modeLabel, r.pairingCode, localStamp(m.expiresAt)])];
 function downloadFile(name, bytes, type) {
+  if (window.PontNative && PontNative.saveFile) {   // inside the Pont Admin app a blob link does nothing: the app saves the file into Downloads
+    let bin = ''; const u8 = new Uint8Array(bytes); for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    toast(PontNative.saveFile(name, type, btoa(bin)) ? 'Saved to Downloads: ' + name : 'Could not save the file.');
+    return;
+  }
   const url = URL.createObjectURL(new Blob([bytes], { type }));
   const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -651,6 +658,7 @@ root.addEventListener('click', async e => {
       await refresh();
       toast(el.dataset.award === '1' ? `Signed out ${plural(r.closed, 'person', 'people')}${r.points ? ' · +' + r.points + ' points' : ''}${r.overdue ? ` · ${plural(r.overdue, 'visit')} too long, no points` : ''}.` : `Discarded ${plural(r.closed, 'visit')}.`);
     }); break;
+    case 'scan': await scanInto(el.dataset.target); break;
     case 'newcard': state.drawer = { mode: 'new' }; render(); break;
     case 'addsuggested': state.drawer = { mode: 'new', uid: el.dataset.uid }; render(); break;
     case 'copyuid': e.stopPropagation(); toast((await copyText(el.dataset.uid)) ? 'Copied ' + el.dataset.uid : 'Could not copy. Select the UID and copy it by hand.'); break;
@@ -1061,5 +1069,70 @@ async function tryLiveRefresh() {
 // Things like "online" and "minutes inside" change as time passes, without any event.
 setInterval(() => { if (token && TIME_DEPENDENT.includes(state.page) && !document.hidden) requestLiveRefresh(); }, 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && token) { requestLiveRefresh(); if (!socket) connectLive(); } });
+
+/* ---------- scanning a card (only inside the Pont Admin app, which reads the card when asked) ---------- */
+const inApp = () => !!(window.PontNative && PontNative.startScan);
+const buzz = kind => { try { window.PontNative && PontNative.feedback && PontNative.feedback(kind); } catch {} };
+const NFC_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 8.5a6.5 6.5 0 0 1 0 7"/><path d="M10 6a10 10 0 0 1 0 12"/><path d="M14 3.5a13.5 13.5 0 0 1 0 17"/></svg>';
+/** The button that goes next to a field a card's UID can be put into. Only the app has it. */
+const nfcButton = target => inApp() ? `<button type="button" class="nfcbtn" data-act="scan" data-target="${target}" aria-label="Scan a card">${NFC_ICON}</button>` : '';
+
+let scanCancel = null;
+/** Asks the app to read one card. Shows a sheet while waiting. Resolves with the UID ("04:A2:3B:1C"), or null if cancelled or NFC is not usable. */
+function scanCard() {
+  return new Promise(resolve => {
+    if (scanCancel) return resolve(null);
+    const status = PontNative.nfcStatus ? PontNative.nfcStatus() : 'ready';
+    if (status !== 'ready') {
+      toast(status === 'disabled' ? 'NFC is switched off. Turn it on in the phone’s settings.' : 'This phone cannot read cards.');
+      if (status === 'disabled' && PontNative.openNfcSettings) PontNative.openNfcSettings();
+      return resolve(null);
+    }
+    const el = document.createElement('div');
+    el.id = 'scan'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Scan a card');
+    el.innerHTML = `<div class="scan-card"><div class="scan-rings" aria-hidden="true"><i></i><i></i><i></i></div><h2>Hold a card to the phone</h2>
+      <p id="scan-msg">Touch the card to the back of the phone, near the top.</p><button type="button" class="btn line" data-scan="cancel">Cancel</button></div>`;
+    document.body.appendChild(el);
+    let timer;
+    const finish = uid => { clearTimeout(timer); scanCancel = null; window.pontScanned = null; try { PontNative.stopScan(); } catch {} el.remove(); resolve(uid); };
+    scanCancel = () => finish(null);
+    window.pontScanned = raw => {
+      const uid = PontNfc.normalizeUid(raw);
+      if (!uid) { buzz('bad'); const m = $('#scan-msg'); if (m) m.textContent = 'That tag is not a card the system can use. Try another card.'; return; }
+      buzz('ok'); finish(uid);
+    };
+    el.addEventListener('click', e => { if (e.target.closest('[data-scan=cancel]') || e.target === el) finish(null); });
+    timer = setTimeout(() => finish(null), 30000);
+    try { PontNative.startScan(); } catch { finish(null); }
+  });
+}
+
+/** The scan button of the search box or of the UID field of the card window. */
+async function scanInto(target) {
+  const uid = await scanCard();
+  if (!uid) return;
+  if (target === 'q') { state.q = uid; const q = $('#q'); if (q) q.value = uid; await refresh(); return; }
+  const field = $('#d-uid'), note = $('#d-nfc');
+  if (!field || !state.drawer) return;
+  field.value = uid; state.drawer.uid = uid;
+  let other = null;
+  try { other = PontNfc.findByUid(await api('GET', '/cards?q=' + encodeURIComponent(uid)), uid); } catch { /* the server says so when it is saved */ }
+  const own = !!other && state.drawer.mode === 'edit' && other.id === state.drawer.card.id;
+  if (other && !own) buzz('bad');
+  if (note) {
+    note.hidden = false; note.className = 'nfcnote ' + (other && !own ? 'bad' : 'good');
+    note.textContent = own ? 'This is already this card’s UID.' : other ? `That card already belongs to ${other.name}.` : 'Card read. The UID is filled in.';
+  }
+}
+
+/** The app's Back button: close what is open first. Returns true when it did something. */
+window.pontBack = function () {
+  if (scanCancel) { scanCancel(); return true; }
+  if (!token) return false;
+  if (state.modal) { state.modal = null; render(); return true; }
+  if (state.drawer) { state.drawer = null; render(); return true; }
+  if (state.page === 'report') { state.page = 'cards'; state.reportId = null; state.data = {}; render(); refresh(); return true; }
+  return false;
+};
 
 if (token) { refresh(); connectLive(); } else render();

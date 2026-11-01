@@ -2,7 +2,7 @@
 /* Fills in the download buttons from /downloads/apps.json (written when an app is published). Without it the buttons say so. */
 (() => {
   const size = n => (n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
-  const apps = [['card', 'dl-card', 'meta-card', 'Pont Card'], ['terminal', 'dl-terminal', 'meta-terminal', 'Pont Terminal']];
+  const apps = [['card', 'dl-card', 'meta-card', 'Pont Card'], ['terminal', 'dl-terminal', 'meta-terminal', 'Pont Terminal'], ['admin', 'dl-admin', 'meta-admin', 'Pont Admin']];
 
   fetch('/downloads/apps.json', { cache: 'no-store' })
     .then(r => (r.ok ? r.json() : Promise.reject()))

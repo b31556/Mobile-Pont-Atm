@@ -29,14 +29,14 @@ To go back, point `current` at the previous release folder and restart the servi
 
 ## Publish the Android apps
 
-Two apps are offered at `https://pont.example.com/app`: **Pont Card** (for card holders, module `:user`, shown first and big) and **Pont Terminal** (for staff phones, module `:app`). One command builds both for the server, signs them and uploads them:
+Three apps are offered at `https://pont.example.com/app`: **Pont Card** (for card holders, module `:user`, shown first and big) **Pont Terminal** (for staff phones, module `:app`) and **Pont Admin** (the admin site with a card scanner, module `:admin`). One command builds all three for the server, signs them and uploads them:
 
 ```sh
 deploy/publish-apps.sh            # build, sign, upload, then download them again to check
 deploy/publish-apps.sh --dry-run  # build and sign only
 ```
 
-The files go to `/var/lib/pont/downloads/` (`pont-card.apk`, `pont-terminal.apk`) and `apps.json` is written last; the page reads it to show the version, size and checksum. The page is served by the app itself, so nothing is needed in nginx.
+The files go to `/var/lib/pont/downloads/` (`pont-card.apk`, `pont-terminal.apk`, `pont-admin.apk`) and `apps.json` is written last; the page reads it to show the version, size and checksum. The page is served by the app itself, so nothing is needed in nginx.
 
 **Keep `~/.config/pont-atm/release.keystore` and its password file safe and backed up.** Phones only accept an update signed with the same key: if it is lost, every phone has to uninstall and reinstall the apps.
 
