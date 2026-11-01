@@ -26,6 +26,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate('db', opts.db);
   app.decorate('displayHub', new DisplayHub());
   app.decorate('loginLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
+  app.decorate('loginIpLimiter', new AttemptLimiter(30, 15 * 60 * 1000));   // wrong logins from one address, whatever the email
   app.decorate('pairLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
   app.register(jwt, { secret: opts.jwtSecret });
   app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 } });
@@ -48,5 +49,5 @@ export function buildApp(opts: AppOptions): FastifyInstance {
 }
 
 declare module 'fastify' {
-  interface FastifyInstance { displayHub: DisplayHub; db: Db; loginLimiter: AttemptLimiter; pairLimiter: AttemptLimiter }
+  interface FastifyInstance { displayHub: DisplayHub; db: Db; loginLimiter: AttemptLimiter; loginIpLimiter: AttemptLimiter; pairLimiter: AttemptLimiter }
 }

@@ -5,6 +5,9 @@ import type { Db } from './db.js';
 import { TOO_MANY } from './limiter.js';
 
 export type Role = 'admin' | 'operator';
+
+/** Compared against when the account does not exist or is switched off, so every login attempt costs the same time. */
+const DUMMY_HASH = bcrypt.hashSync('no-such-account-password', 10);
 export const STAFF_TOKEN_SECONDS = 12 * 60 * 60;
 /** `viaTerminal`: the request was made with a paired phone's terminal token alone, with no person signed in (id is then the terminal's id). */
 export interface StaffUser { id: string; name: string; role: Role; terminalId?: string; viaTerminal?: boolean }
@@ -74,16 +77,21 @@ export function registerAuth(app: FastifyInstance) {
   app.decorate('requireOperator', (req: FastifyRequest, reply: FastifyReply) => staffCheck(req, reply, 'operator'));
 
   app.post('/auth/login', async (req, reply) => {
-    const b = (req.body ?? {}) as { email?: string; password?: string; terminalToken?: string };
-    const limitKey = `${req.ip}|${(b.email ?? '').toLowerCase()}`;
-    if (app.loginLimiter.blocked(limitKey)) return reply.code(429).send(TOO_MANY);
-    const row = app.db.prepare('select * from staff where email=?').get((b.email ?? '').toLowerCase()) as
+    const b = (req.body ?? {}) as { email?: unknown; password?: unknown; terminalToken?: string };
+    const email = typeof b.email === 'string' ? b.email.toLowerCase() : '';
+    const password = typeof b.password === 'string' ? b.password : '';
+    const limitKey = `${req.ip}|${email.slice(0, 200)}`;
+    if (app.loginLimiter.blocked(limitKey) || app.loginIpLimiter.blocked(req.ip)) return reply.code(429).send(TOO_MANY);
+    const row = app.db.prepare('select * from staff where email=?').get(email) as
       { id: string; name: string; password_hash: string; role: Role; active: number; token_version: number } | undefined;
-    if (!row || !row.active || !bcrypt.compareSync(b.password ?? '', row.password_hash)) {
+    // Always check a password hash, even for an unknown or switched-off account, so the answer takes as long either way.
+    const passwordOk = await bcrypt.compare(password, row?.password_hash ?? DUMMY_HASH);
+    if (!row || !row.active || !passwordOk) {
       app.loginLimiter.fail(limitKey);
+      app.loginIpLimiter.fail(req.ip);   // counts every email from this address, so trying one password on many accounts is stopped too
       return reply.code(401).send({ error: 'Wrong email or password' });
     }
-    app.loginLimiter.clear(limitKey);
+    app.loginLimiter.clear(limitKey);   // the per-address counter is not cleared: one good account must not reset it
     let terminalId: string | undefined;
     if (row.role === 'operator') {
       if (!b.terminalToken) return reply.code(400).send({ error: 'This phone is not paired yet' });

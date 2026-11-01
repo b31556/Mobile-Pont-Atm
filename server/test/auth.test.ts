@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import bcrypt from 'bcryptjs';
 import { makeApp, makeTerminal, auth, login, makeOperator } from './helpers.js';
 import { seedStaff } from '../src/auth.js';
 
@@ -156,5 +157,78 @@ describe('attempt limits', () => {
     for (let i = 0; i < 10; i++) await pair('10.0.0.1');
     expect((await pair('10.0.0.1')).statusCode).toBe(429);
     expect((await pair('10.0.0.2')).statusCode).toBe(400);
+  });
+});
+
+describe('login hardening', () => {
+  const login = (app: any, email: unknown, password: unknown, remoteAddress = '10.1.1.1') =>
+    app.inject({ method: 'POST', url: '/auth/login', remoteAddress, payload: { email, password } });
+
+  it('checks a password hash for an unknown email too, so the answer takes as long as for a known one', async () => {
+    const { app } = await makeApp();
+    const spy = vi.spyOn(bcrypt, 'compare');
+    try {
+      expect((await login(app, 'nobody@pont.example', 'whatever')).statusCode).toBe(401);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect((await login(app, 'admin@pont.example', 'wrong')).statusCode).toBe(401);
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally { spy.mockRestore(); }
+  });
+
+  it('checks a hash for a switched-off account, and its right password still fails', async () => {
+    const { app, db } = await makeApp();
+    seedStaff(db, { name: 'Off', email: 'off@pont.example', password: 'pw123456', role: 'admin' });
+    db.prepare("update staff set active=0 where email='off@pont.example'").run();
+    const spy = vi.spyOn(bcrypt, 'compare');
+    try {
+      const res = await login(app, 'off@pont.example', 'pw123456');
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: 'Wrong email or password' });
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally { spy.mockRestore(); }
+  });
+
+  it('answers an unknown email exactly like a wrong password', async () => {
+    const { app } = await makeApp();
+    const a = await login(app, 'nobody@pont.example', 'x');
+    const b = await login(app, 'admin@pont.example', 'x');
+    expect([a.statusCode, a.json()]).toEqual([b.statusCode, b.json()]);
+  });
+
+  it('stops one address trying a password on many accounts', async () => {
+    const { app } = await makeApp();
+    for (let i = 0; i < 30; i++) expect((await login(app, `user${i}@pont.example`, 'Summer2026!')).statusCode).toBe(401);
+    const blocked = await login(app, 'user99@pont.example', 'Summer2026!');
+    expect(blocked.statusCode).toBe(429);
+    expect((await login(app, 'admin@pont.example', 'adminpass')).statusCode).toBe(429);      // even a right password from that address
+    expect((await login(app, 'admin@pont.example', 'adminpass', '10.2.2.2')).statusCode).toBe(200);   // other addresses are fine
+  });
+
+  it('a successful login does not reset the per-address count', async () => {
+    const { app } = await makeApp();
+    for (let i = 0; i < 29; i++) await login(app, `user${i}@pont.example`, 'x');
+    expect((await login(app, 'admin@pont.example', 'adminpass')).statusCode).toBe(200);
+    expect((await login(app, 'user50@pont.example', 'x')).statusCode).toBe(401);   // the 30th failure
+    expect((await login(app, 'admin@pont.example', 'adminpass')).statusCode).toBe(429);
+  });
+
+  it('odd input is a 401, not a server error', async () => {
+    const { app } = await makeApp();
+    for (const [e, p] of [[123, 'x'], ['admin@pont.example', 123], [null, null], [{}, []], ['admin@pont.example', undefined]] as const) {
+      expect((await login(app, e, p)).statusCode).toBe(401);
+    }
+  });
+
+  it('new and reset passwords still work (hashed without blocking)', async () => {
+    const { app, adminToken } = await makeApp();
+    const add = await app.inject({ method: 'POST', url: '/staff', headers: auth(adminToken), payload: { name: 'New', email: 'New@Pont.example', password: 'longenough1', role: 'admin' } });
+    expect(add.statusCode).toBe(201);
+    expect((await login(app, 'new@pont.example', 'longenough1')).statusCode).toBe(200);
+    const dup = await app.inject({ method: 'POST', url: '/staff', headers: auth(adminToken), payload: { name: 'New2', email: 'new@pont.example', password: 'longenough1', role: 'admin' } });
+    expect(dup.statusCode).toBe(409);
+    const patch = await app.inject({ method: 'PATCH', url: `/staff/${add.json().id}`, headers: auth(adminToken), payload: { password: 'another-one-22' } });
+    expect(patch.statusCode).toBe(200);
+    expect((await login(app, 'new@pont.example', 'longenough1')).statusCode).toBe(401);
+    expect((await login(app, 'new@pont.example', 'another-one-22')).statusCode).toBe(200);
   });
 });
