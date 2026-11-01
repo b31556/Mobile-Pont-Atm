@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Builds the three Android apps and signs them with the release key. Only "Pont Card" (for card holders, module :user) is published on the
-# server, where https://<server>/app offers it. The staff apps, "Pont Terminal" (module :app) and "Pont Admin" (module :admin), are signed too but
-# are NOT put on the website: they are saved in private/apps/ (git-ignored) to be handed to staff directly.
+# Builds the two Android apps, signs them with the release key, and publishes them on the server, where
+# https://<server>/app offers them: "Pont Card" (for card holders, module :user), "Pont Terminal" (for staff, module :app) and "Pont Admin" (the admin site with a card scanner, module :admin).
 #
 #   deploy/publish-apps.sh                 build, sign, upload
 #   deploy/publish-apps.sh --no-build      sign and upload the apps built last time
@@ -10,7 +9,7 @@
 #   --host root@server    where to upload (default root@your-server)
 #   --url https://server  the server address built into the apps (default https://pont.example.com)
 #
-# The card app is copied into /var/lib/pont/downloads/ (pont-card.apk) and apps.json is written last,
+# The apps are copied into /var/lib/pont/downloads/ (pont-card.apk, pont-terminal.apk, pont-admin.apk) and apps.json is written last,
 # so the page never points at a file that is not there yet. Needs the release key made once in ~/.config/pont-atm/
 # (release.keystore and release-keystore.pass). Keep both safe: a phone only accepts an update signed with the same key.
 
@@ -57,8 +56,6 @@ APPS=(
   "terminal|pont-terminal.apk|$ROOT/android/app/build/outputs/apk/release/app-release-unsigned.apk"
   "admin|pont-admin.apk|$ROOT/android/admin/build/outputs/apk/release/admin-release-unsigned.apk"
 )
-PUBLIC_KEYS=" card "        # what the website offers; the other apps stay on this computer
-LOCAL_DIR="$ROOT/private/apps"; mkdir -p "$LOCAL_DIR"
 JSON="{"
 for entry in "${APPS[@]}"; do
   IFS='|' read -r key file built <<<"$entry"
@@ -73,7 +70,6 @@ for entry in "${APPS[@]}"; do
   grep -q "application-debuggable" <<<"$badging" && die "$file is a debuggable build"
   size="$(stat -c %s "$WORK/$file")"; sum="$(sha256sum "$WORK/$file" | cut -d' ' -f1)"
   echo "  $key: $pkg $version, $((size / 1024)) KB, sha256 ${sum:0:16}..."
-  if [[ "$PUBLIC_KEYS" != *" $key "* ]]; then cp "$WORK/$file" "$LOCAL_DIR/$file"; echo "    (kept in private/apps/, not published)"; continue; fi
   JSON+="$([ "$JSON" = "{" ] || echo ",")\"$key\":{\"file\":\"$file\",\"package\":\"$pkg\",\"version\":\"$version\",\"size\":$size,\"sha256\":\"$sum\",\"updated\":\"$(date -u +%Y-%m-%d)\"}"
 done
 JSON+="}"
@@ -87,16 +83,15 @@ fi
 
 echo "Uploading to $HOST ..."
 ssh -o BatchMode=yes "$HOST" "mkdir -p '$REMOTE_DIR'"
-for entry in "${APPS[@]}"; do IFS='|' read -r key file _ <<<"$entry"; [[ "$PUBLIC_KEYS" == *" $key "* ]] && scp -q -o BatchMode=yes "$WORK/$file" "$HOST:$REMOTE_DIR/$file.new"; done
+for entry in "${APPS[@]}"; do IFS='|' read -r _ file _ <<<"$entry"; scp -q -o BatchMode=yes "$WORK/$file" "$HOST:$REMOTE_DIR/$file.new"; done
 scp -q -o BatchMode=yes "$WORK/apps.json" "$HOST:$REMOTE_DIR/apps.json.new"
 # the apps first, the list of them last
-ssh -o BatchMode=yes "$HOST" "cd '$REMOTE_DIR' && chmod 644 *.new && for f in *.apk.new; do mv -f \"\$f\" \"\${f%.new}\"; done && mv -f apps.json.new apps.json && rm -f pont-terminal.apk pont-admin.apk"
+ssh -o BatchMode=yes "$HOST" "cd '$REMOTE_DIR' && chmod 644 *.new && for f in *.apk.new; do mv -f \"\$f\" \"\${f%.new}\"; done && mv -f apps.json.new apps.json"
 
 echo "Checking what the page offers ..."
 curl -fsS -m 20 "$URL/downloads/apps.json" | python3 -c 'import json,sys; [print("  " + k + ": " + v["version"] + ", " + str(v["size"] // 1024) + " KB") for k, v in json.load(sys.stdin).items()]'
 for entry in "${APPS[@]}"; do
-  IFS='|' read -r key file _ <<<"$entry"
-  [[ "$PUBLIC_KEYS" == *" $key "* ]] || continue
+  IFS='|' read -r _ file _ <<<"$entry"
   got="$(curl -fsS -m 120 "$URL/downloads/$file" | sha256sum | cut -d' ' -f1)"
   want="$(sha256sum "$WORK/$file" | cut -d' ' -f1)"
   if [ "$got" = "$want" ]; then echo "  $file downloads intact"; else die "$file from the server is different from what was uploaded"; fi

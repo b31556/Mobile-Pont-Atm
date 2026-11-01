@@ -27,13 +27,18 @@ describe('the home page', () => {
 });
 
 describe('the app page', () => {
-  it('offers Pont Card, big, and nothing else', async () => {
+  it('offers Pont Card first and big, and the other two apps small at the very bottom', async () => {
     const { app } = await make();
     const res = await get(app, '/app');
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
+    const card = res.body.indexOf('id="dl-card"'), terminal = res.body.indexOf('id="dl-terminal"'), admin = res.body.indexOf('id="dl-admin"');
+    expect(card).toBeGreaterThan(0);
+    expect(terminal).toBeGreaterThan(card); expect(admin).toBeGreaterThan(terminal);
+    expect(res.body.indexOf('class="more"')).toBeGreaterThan(res.body.indexOf('id="how"'));
     expect(res.body).toContain('class="btn big" id="dl-card"');
-    expect(res.body.match(/class="btn[^"]*" id="dl-/g)).toHaveLength(1);
+    expect(res.body).toContain('class="btn small" id="dl-terminal"');
+    expect(res.body).toContain('class="btn small" id="dl-admin"');
   });
   it('/app/ goes to /app, and the page files are served', async () => {
     const { app } = await make();
@@ -123,19 +128,23 @@ describe('the app page says what Pont Card really does', () => {
     expect(body).toContain('DRAG ONTO YOUR DAY');
     expect(body).toContain('class="a-who"');
   });
-  it('says nothing about the admin or the staff apps, on any public page', async () => {
+  it('gives the other two apps a name and a button and says nothing about what they do', async () => {
     const { app } = await make();
-    for (const url of ['/', '/app', '/program', '/display']) {
-      const body = (await get(app, url)).body;
-      expect(body, url).not.toMatch(/admin|staff|terminal/i);
-    }
-    const css = (await get(app, '/site-assets/site.css')).body;
-    expect(css).not.toMatch(/\.staff/);
+    const body = (await get(app, '/app')).body;
+    const more = body.slice(body.indexOf('class="more"'), body.indexOf('</section>', body.indexOf('class="more"')));
+    expect(more).toContain('Pont Terminal'); expect(more).toContain('Pont Admin');
+    expect(more).not.toMatch(/kiosk|scan|sign in|key|Excel|check people|give points|cancel/i);
+    expect(body).not.toMatch(/For staff|For admins/);
   });
-  it('the page script only knows the card app', async () => {
+  it('does not list the admin on the home page, the program page or the app page menu', async () => {
+    const { app } = await make();
+    for (const url of ['/', '/program']) expect((await get(app, url)).body, url).not.toMatch(/admin/i);
+    const appPage = (await get(app, '/app')).body;
+    expect(appPage.slice(appPage.indexOf('<nav>'), appPage.indexOf('</nav>'))).not.toMatch(/admin/i);
+  });
+  it('the page script knows all three apps', async () => {
     const { app } = await make();
     const js = (await get(app, '/site-assets/app.js')).body;
-    expect(js).toContain("['card', 'dl-card', 'meta-card', 'Pont Card']");
-    expect(js).not.toMatch(/terminal|admin/i);
+    for (const k of ["['card', 'dl-card'", "['terminal', 'dl-terminal'", "['admin', 'dl-admin'"]) expect(js).toContain(k);
   });
 });
