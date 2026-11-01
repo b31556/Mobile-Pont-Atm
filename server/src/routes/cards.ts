@@ -40,6 +40,46 @@ export function cardPhoto(db: Db, dataDir: string, cardId: string): { type: stri
   return { type: 'image/svg+xml', data: avatarSvg(card.photo_style) };
 }
 
+export const MAX_IMPORT = 1000;                 // cards in one import
+const MAX_NAME = 100;
+const MAX_POINTS = 1_000_000;
+
+export interface ImportRow { name: string; uid: string; points: number }
+export interface ImportResult { index: number; ok: boolean; error?: string; uid?: string }
+
+/**
+ * Checks a pasted list of cards against the rules for one card and against each other and the cards that exist.
+ * Returns one result per row (in order) and, when every row is fine, the cleaned rows ready to be saved.
+ */
+export function checkImport(db: Db, input: unknown): { results: ImportResult[]; rows: ImportRow[] | null } | { error: string } {
+  if (!Array.isArray(input) || input.length === 0) return { error: 'Paste at least one card' };
+  if (input.length > MAX_IMPORT) return { error: `Up to ${MAX_IMPORT} cards at a time` };
+  // Rows may say which line of the pasted list they came from, so a message can point at what the person sees.
+  const where = (i: number) => { const line = (input[i] as { line?: unknown } | null)?.line; return typeof line === 'number' && Number.isInteger(line) && line > 0 ? `line ${line}` : `row ${i + 1}`; };
+  const firstSeen = new Map<string, number>();
+  const rows: ImportRow[] = [];
+  const results = input.map((raw, index): ImportResult => {
+    const r = (raw && typeof raw === 'object' ? raw : {}) as { name?: unknown; uid?: unknown; points?: unknown };
+    const name = typeof r.name === 'string' ? r.name.trim() : '';
+    if (!name) return { index, ok: false, error: 'Add the holder’s name' };
+    if (name.length > MAX_NAME) return { index, ok: false, error: `The name can be up to ${MAX_NAME} characters` };
+    const uid = typeof r.uid === 'string' ? normalizeUid(r.uid) : null;
+    if (!uid) return { index, ok: false, error: 'That is not a valid card UID' };
+    const points = r.points === undefined || r.points === null ? 0 : r.points;
+    if (typeof points !== 'number' || !Number.isInteger(points) || points < 0 || points > MAX_POINTS) {
+      return { index, ok: false, uid, error: `Starting points must be a whole number from 0 to ${MAX_POINTS}` };
+    }
+    const earlier = firstSeen.get(uid);
+    if (earlier !== undefined) return { index, ok: false, uid, error: `The same card UID as ${where(earlier)}` };
+    firstSeen.set(uid, index);
+    const existing = findCardByUid(db, uid);
+    if (existing) return { index, ok: false, uid, error: `That UID is already on a card (${existing.name})` };
+    rows.push({ name, uid, points });
+    return { index, ok: true, uid };
+  });
+  return { results, rows: results.every(x => x.ok) ? rows : null };
+}
+
 export function registerCards(app: FastifyInstance, dataDir: string) {
   const db = app.db;
   const get = (id: string) => db.prepare('select * from cards where id=?').get(id) as CardRow | undefined;
@@ -66,6 +106,31 @@ export function registerCards(app: FastifyInstance, dataDir: string) {
       db.prepare('delete from card_suggestions where uid=?').run(uid);
     })();
     return reply.code(201).send(cardJson(get(id)!));
+  });
+
+  /** Dry run for the import page: says what is wrong with which row, and saves nothing. */
+  app.post('/cards/import/check', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const checked = checkImport(db, ((req.body ?? {}) as { rows?: unknown }).rows);
+    if ('error' in checked) return reply.code(400).send({ error: checked.error });
+    return { ok: checked.rows !== null, results: checked.results };
+  });
+
+  /** Makes all the cards of a pasted list, or none if any row has a problem. Photos are sent afterwards, one per card. */
+  app.post('/cards/import', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const checked = checkImport(db, ((req.body ?? {}) as { rows?: unknown }).rows);
+    if ('error' in checked) return reply.code(400).send({ error: checked.error });
+    if (!checked.rows) return reply.code(400).send({ error: 'Some rows have a problem, so no card was made', results: checked.results });
+    const rows = checked.rows;
+    const created = db.transaction(() => {
+      let style = (db.prepare('select count(*) c from cards').get() as { c: number }).c;
+      return rows.map((r, index) => {
+        const id = randomUUID();
+        db.prepare('insert into cards(id,name,uid,balance,status,photo_style) values(?,?,?,?,?,?)').run(id, r.name, r.uid, r.points, 'active', style++ % STYLES.length);
+        db.prepare('delete from card_suggestions where uid=?').run(r.uid);
+        return { index, id, uid: r.uid };
+      });
+    })();
+    return reply.code(201).send({ created });
   });
 
   app.patch('/cards/:id', { preHandler: app.requireAdmin }, async (req, reply) => {

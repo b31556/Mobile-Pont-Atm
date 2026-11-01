@@ -143,7 +143,7 @@ export function changeFor(method: string, url: string, status: number): { topics
   // A tap on a reader or check-in phone also records unregistered cards (answered 404) and refusals, so it counts unless the server failed.
   if (path === '/fixed/tap' || path === '/presence/tap') return status < 500 ? { topics: ['cards', 'transactions', 'presence', 'suggestions', 'terminals'] } : null;
   if (status >= 400) return null;
-  if (path === '/presence/preview') return null;   // a calculation, not a change
+  if (path === '/presence/preview' || path === '/cards/import/check') return null;   // a calculation, not a change
   if (path === '/heartbeat') return { topics: ['terminals'], throttle: { key: 'heartbeat', everyMs: 20_000 } };
   if (path === '/device/hello') return { topics: ['devices', 'terminals'], throttle: { key: 'hello', everyMs: 5_000 } };
   if (under('/charges') || under('/transactions')) return { topics: ['transactions', 'cards', 'terminals'] };

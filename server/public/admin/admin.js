@@ -120,6 +120,7 @@ function cardsPane() {
     : `<tr><td colspan="6" class="empty">${state.q ? 'No card matches “' + esc(state.q) + '”. Try a name or a UID.' : 'No cards yet. Add the first one.'}</td></tr>`;
   return `${suggestionsPanel()}<div class="ph"><div><h1>Cards</h1><p>${active} active, ${all.length - active} blocked</p></div><span class="sp"></span>
     <input class="search" id="q" placeholder="Search name or UID" value="${esc(state.q)}" aria-label="Search cards">
+    <button class="btn line" data-act="importcards">Import cards</button>
     <button class="btn green" data-act="newcard">Add card</button></div>
     <div class="stats"><div class="stat"><b>${all.reduce((s, c) => s + c.balance, 0)}</b><span>Points on cards</span></div>
     <div class="stat"><b>${given}</b><span>Given today, after storno</span></div><div class="stat"><b>${active}</b><span>Active cards</span></div></div>
@@ -347,6 +348,7 @@ function modalView() {
     <label class="field" style="text-align:left">Terminal name<input name="name" required placeholder="Bar 2"></label>
     <label class="field" style="text-align:left">Place<input name="place" placeholder="Main hall"></label>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button><button class="btn green" style="flex:1;justify-content:center">Create and get code</button></div></form></div>`;
+  if (m.kind === 'import') return importModal();
   if (m.kind === 'batch') {
     const mins = [[10, '10 minutes'], [60, '1 hour'], [480, '8 hours'], [1440, '24 hours'], [4320, '3 days'], [10080, '7 days']];
     return `<div class="modal-scrim"><form class="modal wide" id="batchform" data-stop>
@@ -482,6 +484,7 @@ root.addEventListener('submit', async e => {
 
 root.addEventListener('input', e => {
   if (e.target.id === 'q') { state.q = e.target.value; refresh(); }
+  if (e.target.id === 'imp-text' && state.import) { state.import.text = e.target.value; scheduleImportCheck(); }
   if (e.target.closest && e.target.closest('#rules')) refreshPreview();
 });
 root.addEventListener('change', async e => {
@@ -503,6 +506,7 @@ root.addEventListener('change', async e => {
   if (e.target.dataset && e.target.dataset.modeFor) {
     await guard(async () => { const t = await api('PATCH', '/terminals/' + e.target.dataset.modeFor, { mode: e.target.value }); await refresh(); toast(t.name + ' is now in ' + (t.mode === 'presence' ? 'Check-in' : 'ATM') + ' mode.'); });
   }
+  if ((e.target.id === 'imp-files' || e.target.id === 'imp-folder') && state.import) { addImportFiles([...e.target.files]); e.target.value = ''; }
   if (e.target.id === 'b-mode') document.getElementById('b-checkin').hidden = e.target.value !== 'presence';
   if (e.target.id === 'd-photo') {
     const file = e.target.files[0];
@@ -541,7 +545,7 @@ root.addEventListener('click', async e => {
         if (state.drawer.mode === 'new') saved = await api('POST', '/cards', { ...body, points: parseInt($('#d-pts').value, 10) || 0 });
         else saved = await api('PATCH', '/cards/' + state.drawer.card.id, body);
         const file = $('#d-photo').files[0];
-        if (file) { const fd = new FormData(); fd.append('photo', file); await api('PUT', `/cards/${saved.id}/photo`, fd); photoCache.clear(); }
+        if (file) { const fd = new FormData(); fd.append('photo', await compressPhoto(file), 'photo.jpg'); await api('PUT', `/cards/${saved.id}/photo`, fd); photoCache.clear(); }
         state.drawer = null; await refresh(); toast('Saved.');
       } catch (ex) { err.textContent = ex.message; }
       break; }
@@ -562,6 +566,11 @@ root.addEventListener('click', async e => {
     }); break;
     case 'newterm': state.modal = { kind: 'newterm' }; render(); break;
     case 'newbatch': state.modal = { kind: 'batch' }; render(); break;
+    case 'importcards': openImport(); break;
+    case 'importgo': doImport(); break;
+    case 'importclearphotos': state.import.files = []; state.import.jobs.clear(); state.import.info.clear(); updateImport(); break;
+    case 'importretry': retryImportPhotos(); break;
+    case 'importdone': state.modal = null; state.import = null; render(); await refresh(); break;
     case 'batchxlsx': {
       const bytes = PontXlsx.build('Pairing codes', batchTable(state.modal), [14, 26, 36, 14, 18]);
       downloadFile(`pont-pairing-codes-${localStamp(new Date().toISOString()).slice(0, 10)}.xlsx`, bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -580,6 +589,239 @@ root.addEventListener('click', async e => {
     }); break;
   }
 });
+
+/* ---------- photos: made small before they are sent ---------- */
+/* A photo from a phone is several megabytes; a reader shows it as a circle at most about 500 px wide. So each photo is cut to
+   a centred square (a little above the middle for portraits, so heads stay in), made 400 px, and saved as a JPEG: about 30 KB.
+   Doing it here also drops everything else in the file (such as where the photo was taken). */
+const PHOTO_SIZE = 400, PHOTO_QUALITY = 0.8, PHOTO_MAX_BYTES = 40 * 1024 * 1024;
+async function compressPhoto(file) {
+  if (file.size > PHOTO_MAX_BYTES) throw new Error('This picture is too large (over 40 MB)');
+  let bitmap;
+  try { bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch { throw new Error('This is not a picture this browser can read (use JPEG, PNG or WebP)'); }
+  const side = Math.min(bitmap.width, bitmap.height);
+  const sx = (bitmap.width - side) / 2;
+  const sy = bitmap.height > bitmap.width ? (bitmap.height - side) * 0.3 : (bitmap.height - side) / 2;
+  const size = Math.min(PHOTO_SIZE, side);   // a small picture is not made bigger
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);   // a transparent PNG would turn black as a JPEG
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, size, size);
+  if (bitmap.close) bitmap.close();
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', PHOTO_QUALITY));
+  if (!blob) throw new Error('Could not make this picture smaller');
+  return blob;
+}
+
+/* ---------- import cards ---------- */
+const kb = n => (n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+const IMAGE_NAME = /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i;
+let importSeq = 0, importTimer = null, importPaint = null;
+
+function openImport() {
+  state.import = { text: '', files: [], parsed: null, check: null, checking: false, checkError: '', phase: 'edit', progress: '', pct: 0, result: null, jobs: new Map(), info: new Map(), chain: Promise.resolve() };
+  state.modal = { kind: 'import' };
+  render();
+  const box = document.getElementById('imp-text'); if (box) box.focus();
+}
+
+function importModal() {
+  const im = state.import;
+  if (!im) return '';
+  const form = im.phase !== 'edit' ? '' : `
+    <p class="note"><b>1.</b> Paste the list, one card per line, with a first row naming the columns: <code>name, uid, points, photo</code>
+      (<code>points</code> and <code>photo</code> are optional; the photo is the picture's file name, like <code>anna.jpg</code>). Commas, semicolons and tabs all work, so a copy from Excel or Sheets can be pasted as it is.</p>
+    <label class="field" style="text-align:left"><span class="sr">The list of cards</span><textarea id="imp-text" spellcheck="false" placeholder="name,uid,points,photo&#10;Anna Kovács,04:A2:3B:1C,10,anna.jpg&#10;Béla Nagy,04BBCCDD,0,bela.jpg">${esc(im.text)}</textarea></label>
+    <p class="note"><b>2.</b> Choose the pictures. They are matched by file name and made small (400 px) before they are sent, so readers load them quickly.</p>
+    <div class="inline" style="justify-content:flex-start;align-items:center">
+      <label class="btn line sm">Choose pictures<input id="imp-files" type="file" multiple accept="image/*" class="hidden"></label>
+      <label class="btn line sm">Choose a folder<input id="imp-folder" type="file" webkitdirectory class="hidden"></label>
+      <span class="note" id="imp-filesum"></span>
+    </div>`;
+  return `<div class="modal-scrim"><div class="modal wide import" data-stop><h2>Import cards</h2>${form}<div id="imp-dyn">${importDyn(im)}</div></div></div>`;
+}
+
+/** Redraws the checked list and the buttons only, so the pasted text and the cursor are never touched. */
+function updateImport() {
+  const im = state.import, dyn = document.getElementById('imp-dyn');
+  if (!im || !dyn) return;
+  dyn.innerHTML = importDyn(im);
+  const sum = document.getElementById('imp-filesum');
+  if (sum) sum.innerHTML = im.files.length ? `${plural(im.files.length, 'picture')} chosen · <button class="linklike" data-act="importclearphotos" type="button">clear</button>` : '';
+}
+const paintImportSoon = () => { clearTimeout(importPaint); importPaint = setTimeout(updateImport, 120); };
+
+/** For each row of the list: which chosen picture it names, if any. */
+function importMatches(im) {
+  const names = im.files.map(f => f.name);
+  return im.parsed && im.parsed.ok ? im.parsed.rows.map(r => PontCsv.matchPhoto(r.photo, names)) : [];
+}
+
+function importDyn(im) {
+  if (im.phase === 'working') {
+    return `<p class="note"><b>${esc(im.progress)}</b></p><div class="bar"><i style="width:${Math.max(4, im.pct)}%"></i></div><p class="note">Please keep this page open until it says it is done.</p>`;
+  }
+  if (im.phase === 'done') {
+    const r = im.result;
+    return `<p class="note"><b>${plural(r.created, 'card')} made</b>, ${plural(r.photosOk, 'photo')} added${r.noPhoto ? `, ${plural(r.noPhoto, 'card')} without a photo (they show the placeholder portrait)` : ''}.</p>
+      ${r.failed.length ? `<p class="err">${plural(r.failed.length, 'photo')} could not be added:</p>
+        <div class="imp-scroll"><table class="imp-table"><tbody>${r.failed.map(f => `<tr><td>${esc(f.holder)}</td><td>${esc(f.file)}</td><td class="bad">${esc(f.reason)}</td></tr>`).join('')}</tbody></table></div>
+        <p class="note">The cards themselves exist. Try those photos again, or open the card and choose its photo.</p>` : ''}
+      <div class="inline">${r.failed.length ? '<button class="btn line" style="flex:1;justify-content:center" data-act="importretry" type="button">Try the failed photos again</button>' : ''}<button class="btn green" style="flex:1;justify-content:center" data-act="importdone" type="button">Done</button></div>`;
+  }
+  const p = im.parsed;
+  let body;
+  if (!p) body = '<p class="note">The list is checked here as soon as you paste it.</p>';
+  else if (!p.ok) body = `<p class="err">${esc(p.error)}</p>`;
+  else if (im.checkError) body = `<p class="err">${esc(im.checkError)}</p>`;
+  else if (im.checking || !im.check) body = '<p class="note">Checking…</p>';
+  else body = importPreview(im);
+  const ready = !!(p && p.ok && im.check && im.check.ok && !im.checking);
+  const n = ready ? p.rows.length : 0;
+  return `${body}<div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal" type="button">Cancel</button>
+    <button class="btn green" style="flex:1;justify-content:center" data-act="importgo" type="button"${ready ? '' : ' disabled'}>${ready ? `Import ${plural(n, 'card')}` : 'Import'}</button></div>`;
+}
+
+function importPreview(im) {
+  const rows = im.parsed.rows, results = im.check.results, matches = importMatches(im);
+  const bad = results.filter(r => !r.ok).length;
+  const wanted = rows.filter(r => r.photo).length, found = matches.filter(m => m.index !== undefined).length;
+  const used = new Set(matches.filter(m => m.index !== undefined).map(m => m.index));
+  const unused = im.files.filter((_, i) => !used.has(i));
+  const infos = [...used].map(i => im.info.get(im.files[i]));
+  const allDone = infos.length && infos.every(Boolean) && infos.every(x => !x.error);
+  const sizes = allDone ? ` Together ${kb(infos.reduce((s, x) => s + x.before, 0))} → ${kb(infos.reduce((s, x) => s + x.after, 0))} after making them small.` : '';
+  const cell = (r, m, res) => `<tr class="${res.ok ? '' : 'err'}"><td class="mono">${r.line}</td><td>${esc(r.name)}</td><td class="mono">${esc(res.uid || r.uid)}</td><td class="num">${r.points === undefined ? 0 : esc(r.points)}</td><td>${photoCell(im, m)}</td><td>${res.ok ? '<span class="pill ok">OK</span>' : `<span class="bad">${esc(res.error)}</span>`}</td></tr>`;
+  return `<p class="note"><b>${plural(rows.length, 'row')}</b>: ${rows.length - bad} ready${bad ? `, <span class="bad"><b>${bad} with a problem</b></span>: fix ${bad === 1 ? 'it' : 'them'} in the list above, nothing is imported until every row is fine` : ''}.</p>
+    ${wanted ? `<p class="note">${found} of ${plural(wanted, 'photo name')} matched a chosen picture.${sizes}${found < wanted ? ' Rows with no picture get the placeholder portrait.' : ''}</p>` : (im.files.length ? '<p class="note">The list names no photos, so the chosen pictures are not used (add a <code>photo</code> column).</p>' : '')}
+    ${unused.length && wanted ? `<p class="note">${plural(unused.length, 'chosen picture')} not used: ${esc(unused.slice(0, 4).map(f => f.name).join(', '))}${unused.length > 4 ? ', …' : ''}.</p>` : ''}
+    <div class="imp-scroll"><table class="imp-table"><thead><tr><th>Line</th><th>Holder</th><th>Card UID</th><th>Points</th><th>Photo</th><th>Check</th></tr></thead><tbody>${rows.map((r, i) => cell(r, matches[i], results[i])).join('')}</tbody></table></div>`;
+}
+
+function photoCell(im, m) {
+  if (m.none) return '<span class="mute">—</span>';
+  if (m.error) return `<span class="warn">${esc(m.error)}</span>`;
+  const f = im.files[m.index], info = im.info.get(f);
+  const tail = !info ? 'making it small…' : info.error ? `<span class="bad">${esc(info.error)}</span>` : `${kb(info.before)} → ${kb(info.after)}`;
+  return `${esc(f.name)} <span class="mute">${tail}</span>`;
+}
+
+function scheduleImportCheck() { clearTimeout(importTimer); importTimer = setTimeout(runImportCheck, 300); }
+
+async function runImportCheck() {
+  const im = state.import;
+  if (!im || im.phase !== 'edit') return;
+  const seq = ++importSeq;
+  im.parsed = PontCsv.parse(im.text); im.check = null; im.checkError = '';
+  if (!im.parsed.ok) { im.checking = false; updateImport(); return; }
+  im.checking = true; updateImport();
+  try {
+    const r = await api('POST', '/cards/import/check', { rows: im.parsed.rows.map(({ name, uid, points, line }) => ({ name, uid, points, line })) });
+    if (seq !== importSeq || state.import !== im) return;
+    im.check = r;
+  } catch (e) {
+    if (seq !== importSeq || state.import !== im) return;
+    im.checkError = e.message;
+  }
+  im.checking = false; updateImport();
+  prepareImportPhotos();
+}
+
+/** Starts making the matched pictures small, one at a time (a phone photo is big in memory), while the person reads the list. */
+function prepareImportPhotos() {
+  const im = state.import;
+  if (!im || !im.check) return;
+  for (const m of importMatches(im)) {
+    if (m.index === undefined) continue;
+    const file = im.files[m.index];
+    if (im.jobs.has(file)) continue;
+    const job = im.chain.then(() => compressPhoto(file));
+    im.jobs.set(file, job);
+    im.chain = job.then(() => {}, () => {});
+    job.then(blob => im.info.set(file, { before: file.size, after: blob.size }), e => im.info.set(file, { error: e.message })).then(paintImportSoon);
+  }
+}
+
+function addImportFiles(list) {
+  const im = state.import;
+  if (!im) return;
+  for (const f of list) {
+    if (!(f.type.startsWith('image/') || IMAGE_NAME.test(f.name))) continue;
+    if (!im.files.some(x => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified)) im.files.push(f);
+  }
+  updateImport();
+  prepareImportPhotos();
+}
+
+async function uploadPhoto(cardId, blob) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const fd = new FormData(); fd.append('photo', blob, 'photo.jpg');
+    try { await api('PUT', `/cards/${cardId}/photo`, fd); return; }
+    catch (e) { lastError = e; if (!token) throw e; await new Promise(r => setTimeout(r, 400 * attempt)); }
+  }
+  throw lastError;
+}
+
+/** Sends the photos, four at a time. [tasks] is a list of { id, holder, file (a File), job (its small version) }. Returns the ones that failed. */
+async function sendImportPhotos(im, tasks) {
+  const failed = [], queue = tasks.slice();
+  let done = 0, ok = 0;
+  const total = tasks.length;
+  const worker = async () => {
+    while (queue.length) {
+      const t = queue.shift();
+      try { await uploadPhoto(t.id, await t.job); ok++; }
+      catch (e) { failed.push({ ...t, holder: t.holder, file: t.file.name, reason: e.message }); }
+      done++;
+      im.progress = `Adding photos: ${done} of ${total}`; im.pct = 50 + (done / total) * 50;
+      updateImport();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, total) }, worker));
+  photoCache.clear();
+  return { ok, failed };
+}
+
+async function doImport() {
+  const im = state.import;
+  if (!im || im.phase !== 'edit' || !im.parsed || !im.parsed.ok || !im.check || !im.check.ok) return;
+  const rows = im.parsed.rows, matches = importMatches(im);
+  im.phase = 'working'; im.progress = `Making ${plural(rows.length, 'card')}…`; im.pct = 20;
+  render();
+  let created;
+  try { created = (await api('POST', '/cards/import', { rows: rows.map(({ name, uid, points, line }) => ({ name, uid, points, line })) })).created; }
+  catch (e) {   // something changed since the check (for example another admin added one of the cards): show the list again
+    im.phase = 'edit'; render(); await runImportCheck();
+    if (!im.checkError) im.checkError = e.message;
+    updateImport();
+    return;
+  }
+  const tasks = created.flatMap(c => {
+    const m = matches[c.index];
+    return m && m.index !== undefined ? [{ id: c.id, holder: rows[c.index].name, file: im.files[m.index], job: im.jobs.get(im.files[m.index]) || compressPhoto(im.files[m.index]) }] : [];
+  });
+  im.progress = tasks.length ? 'Adding photos…' : 'Done'; im.pct = 50; updateImport();
+  const { ok, failed } = tasks.length ? await sendImportPhotos(im, tasks) : { ok: 0, failed: [] };
+  im.result = { created: created.length, photosOk: ok, noPhoto: created.length - tasks.length, failed };
+  im.phase = 'done';
+  render();
+}
+
+async function retryImportPhotos() {
+  const im = state.import;
+  if (!im || !im.result || !im.result.failed.length) return;
+  const tasks = im.result.failed.map(f => ({ id: f.id, holder: f.holder, file: f.file instanceof File ? f.file : im.files.find(x => x.name === f.file), job: im.jobs.get(im.files.find(x => x.name === f.file)) }));
+  im.phase = 'working'; im.progress = 'Trying the failed photos again…'; im.pct = 50; render();
+  const { ok, failed } = await sendImportPhotos(im, tasks.map(t => ({ ...t, job: t.job ? t.job.catch(() => compressPhoto(t.file)) : compressPhoto(t.file) })));
+  im.result = { ...im.result, photosOk: im.result.photosOk + ok, failed };
+  im.phase = 'done';
+  render();
+}
 
 /* ---------- live updates (WebSocket) ---------- */
 /* The server only says what changed ("cards", "transactions" ...). The page then asks for its own data again, but never

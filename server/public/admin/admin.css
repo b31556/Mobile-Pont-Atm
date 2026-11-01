@@ -168,3 +168,22 @@ td.batchcode{font:800 20px ui-monospace,Menlo,monospace;letter-spacing:.14em;fon
 .side .live[data-state=live]::before{background:#3DDC84}
 .side .live[data-state=waiting]::before{background:var(--amber)}
 .side .live[data-state=offline]::before{background:var(--red)}
+
+/* import cards */
+.modal.import{text-align:left}
+.modal.import h2{text-align:center}
+.modal.import textarea{min-height:150px;width:100%}
+.modal.import .sr{position:absolute;left:-9999px}
+.modal.import code{font:12px ui-monospace,Menlo,monospace;background:#F0F3F5;border-radius:5px;padding:1px 5px}
+.imp-scroll{max-height:300px;overflow:auto;border-radius:12px;box-shadow:0 0 0 1px var(--line);background:#fff}
+.imp-table{min-width:0;font-size:13px}
+.imp-table th,.imp-table td{padding:7px 10px;text-align:left;vertical-align:top}
+.imp-table tr.err{background:#FDF2F1}
+.imp-table .num{text-align:right}
+.bad{color:var(--red)}
+.warn{color:#9A6B00}
+.mute{color:var(--ink-3)}
+.linklike{background:none;border:0;padding:0;color:var(--ink-2);text-decoration:underline;cursor:pointer;font:inherit}
+.bar{height:8px;background:var(--line);border-radius:6px;overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--green);transition:width .2s}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
