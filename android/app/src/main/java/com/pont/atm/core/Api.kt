@@ -23,7 +23,7 @@ class PontApi(
     private val session: SessionStore,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).writeTimeout(10, TimeUnit.SECONDS).build(),
-) : HistoryApi, PresetsApi, PresenceApi {
+) : HistoryApi, PresetsApi, PresenceApi, InfoApi {
     private val json = Json { ignoreUnknownKeys = true }
     private class Raw(val status: Int, val body: String)
 
@@ -85,7 +85,7 @@ class PontApi(
     suspend fun suggestCard(cardUid: String): Result<Unit> =
         call("POST", "/card-suggestions", buildJsonObject { put("cardUid", cardUid) }) { }
 
-    /** Which mode the server has set for this phone: `atm` or `presence`. */
+    /** Which mode the server has set for this phone: `atm`, `presence` or `info`. */
     suspend fun config(): Result<TerminalConfig> = call("GET", "/terminal/config") { json.decodeFromString<TerminalConfig>(it) }
 
     /** A tap on a check-in terminal: signs the card in or out. */
@@ -105,6 +105,26 @@ class PontApi(
             }
             r.status == 409 && code == "wrong_mode" -> PresenceOutcome.WrongMode
             else -> PresenceOutcome.Failed(errorOf(r).message ?: "Something went wrong.")
+        }
+    }
+
+    /** A tap on an info terminal: changes nothing, returns the holder's points and recent history. */
+    override suspend fun infoTap(uid: String): InfoOutcome {
+        val body = buildJsonObject { put("cardUid", uid) }
+        val r = try { raw("POST", "/info/tap", body) } catch (e: IOException) { return InfoOutcome.NoConnection }
+        if (r.status == 401) unpair()
+        val obj = runCatching { json.parseToJsonElement(r.body).jsonObject }.getOrNull()
+        val code = obj?.get("code")?.jsonPrimitive?.contentOrNull
+        return when {
+            r.status == 200 -> runCatching { InfoOutcome.Done(json.decodeFromString<InfoResult>(r.body)) }
+                .getOrElse { InfoOutcome.Failed("The server sent an answer the app can't read.") }
+            r.status == 404 && code == "unknown_card" -> InfoOutcome.UnknownCard
+            r.status == 403 && code == "card_blocked" -> {
+                val card = obj["card"]?.jsonObject
+                InfoOutcome.Blocked(card?.get("name")?.jsonPrimitive?.contentOrNull.orEmpty(), card?.get("photoUrl")?.jsonPrimitive?.contentOrNull.orEmpty())
+            }
+            r.status == 409 && code == "wrong_mode" -> InfoOutcome.WrongMode
+            else -> InfoOutcome.Failed(errorOf(r).message ?: "Something went wrong.")
         }
     }
 

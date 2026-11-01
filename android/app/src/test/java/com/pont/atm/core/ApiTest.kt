@@ -239,4 +239,49 @@ class ApiTest {
         session.direction = "out"; session.zoneName = "Gym"
         assertEquals("out", session.direction); assertEquals("Gym", session.zoneName)
     }
+    private val infoBody = """{"action":"info","card":{"id":"c1","name":"Anna Kovács","photoUrl":"/cards/c1/photo","balance":12},
+        "history":[{"at":"2026-10-22T14:32:00.000Z","kind":"fixed","amount":8,"place":"Bar 2","note":null,"stornoed":false},
+                   {"at":"2026-10-22T13:00:00.000Z","kind":"presence","amount":4,"place":"Gym","note":"34 min","stornoed":true,"extra":1}]}"""
+
+    @Test fun configCanSayInfo() = runBlocking {
+        server.enqueue(json(200, """{"mode":"info","name":"Lobby kiosk"}"""))
+        assertEquals("info", api.config().getOrThrow().mode)
+    }
+
+    @Test fun anInfoTapReturnsTheHolderAndHistory() = runBlocking {
+        server.enqueue(json(200, infoBody))
+        val r = (api.infoTap("04:A2:3B:1C") as InfoOutcome.Done).result
+        assertEquals("Anna Kovács", r.card.name); assertEquals(12, r.card.balance); assertEquals("/cards/c1/photo", r.card.photoUrl)
+        assertEquals(2, r.history.size)
+        assertEquals(InfoRow("2026-10-22T14:32:00.000Z", "fixed", 8, "Bar 2", null, false), r.history[0])
+        assertEquals("34 min", r.history[1].note); assertTrue(r.history[1].stornoed)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method); assertEquals("/info/tap", req.path)
+        assertEquals("Bearer term-tok", req.getHeader("Authorization"))
+        assertTrue("\"cardUid\":\"04:A2:3B:1C\"" in req.body.readUtf8())
+    }
+
+    @Test fun infoRefusalsAreMapped() = runBlocking {
+        server.enqueue(json(404, """{"error":"Card not registered","code":"unknown_card"}"""))
+        assertEquals(InfoOutcome.UnknownCard, api.infoTap("u"))
+        server.enqueue(json(403, """{"error":"Card is blocked","code":"card_blocked","card":{"name":"Dóra","photoUrl":"/cards/c4/photo"}}"""))
+        assertEquals(InfoOutcome.Blocked("Dóra", "/cards/c4/photo"), api.infoTap("u"))
+        server.enqueue(json(409, """{"error":"This terminal is not in info mode.","code":"wrong_mode"}"""))
+        assertEquals(InfoOutcome.WrongMode, api.infoTap("u"))
+        server.enqueue(json(500, """{"error":"Something broke"}"""))
+        assertEquals(InfoOutcome.Failed("Something broke"), api.infoTap("u"))
+        server.enqueue(json(200, "not json"))
+        assertTrue(api.infoTap("u") is InfoOutcome.Failed)
+    }
+
+    @Test fun infoNoConnectionIsMapped() = runBlocking {
+        server.shutdown()
+        assertEquals(InfoOutcome.NoConnection, api.infoTap("u"))
+    }
+
+    @Test fun aRevokedPhoneIsUnpairedByAnInfoTap() = runBlocking {
+        server.enqueue(json(401, """{"error":"This phone was revoked"}"""))
+        assertTrue(api.infoTap("u") is InfoOutcome.Failed)
+        assertNull(session.terminalToken)
+    }
 }

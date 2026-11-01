@@ -116,7 +116,7 @@ private fun Line(text: String, strong: Boolean = false) {
 }
 
 @Composable
-private fun Refused(copy: OutcomeCopy, holder: String?, photo: String?, api: PontApi) {
+internal fun Refused(copy: OutcomeCopy, holder: String?, photo: String?, api: PontApi) {
     Column(Modifier.fillMaxSize()) {
         Header(PontColors.Red) {
             Text("✕", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 36.sp)

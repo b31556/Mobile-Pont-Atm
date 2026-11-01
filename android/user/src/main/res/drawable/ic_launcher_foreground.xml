@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- A card with a chip, in the brand's amber. Kept inside the 66dp safe zone. -->
+    <path android:fillColor="#F5B31F" android:pathData="M30,38 h48 a6,6 0 0 1 6,6 v22 a6,6 0 0 1 -6,6 h-48 a6,6 0 0 1 -6,-6 v-22 a6,6 0 0 1 6,-6 z" />
+    <path android:fillColor="#12202B" android:pathData="M34,46 h12 a2,2 0 0 1 2,2 v8 a2,2 0 0 1 -2,2 h-12 a2,2 0 0 1 -2,-2 v-8 a2,2 0 0 1 2,-2 z" />
+    <path android:fillColor="#17A34A" android:pathData="M58,62 h16 a2,2 0 0 1 0,4 h-16 a2,2 0 0 1 0,-4 z" />
+</vector>

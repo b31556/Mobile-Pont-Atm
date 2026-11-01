@@ -80,3 +80,29 @@ sealed interface PresenceOutcome {
 fun interface PresenceApi {
     suspend fun presenceTap(uid: String, key: String): PresenceOutcome
 }
+
+// ---- info-kiosk mode ----
+
+/** One line of a card's recent history, as `/info/tap` sends it. `kind` is atm, fixed, presence, storno or adjust. */
+@Serializable data class InfoRow(
+    val at: String, val kind: String, val amount: Int = 0, val place: String = "", val note: String? = null, val stornoed: Boolean = false,
+)
+
+/** The card holder's current points, shown by an info terminal. */
+@Serializable data class InfoCard(val id: String, val name: String, val photoUrl: String = "", val balance: Int)
+
+/** The answer to a tap on an info terminal: the holder, their points, and up to 10 recent rows (newest first). */
+@Serializable data class InfoResult(val action: String = "info", val card: InfoCard, val history: List<InfoRow> = emptyList())
+
+sealed interface InfoOutcome {
+    data class Done(val result: InfoResult) : InfoOutcome
+    data class Blocked(val name: String, val photoUrl: String) : InfoOutcome
+    data object UnknownCard : InfoOutcome
+    data object NoConnection : InfoOutcome
+    data object WrongMode : InfoOutcome
+    data class Failed(val message: String) : InfoOutcome
+}
+
+fun interface InfoApi {
+    suspend fun infoTap(uid: String): InfoOutcome
+}

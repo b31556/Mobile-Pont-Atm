@@ -7,7 +7,7 @@ interface SessionStore {
     var terminalToken: String?
     var terminalName: String?
 
-    /** `atm` or `presence`, as last set by the server. Used until the next answer arrives. */
+    /** `atm`, `presence` or `info`, as last set by the server. Used until the next answer arrives. */
     var mode: String
 
     /** For a check-in phone: `in`, `out` or `toggle`, and the zone it belongs to. */

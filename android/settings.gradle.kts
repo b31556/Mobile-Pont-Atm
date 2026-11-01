@@ -7,3 +7,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "pont-atm"
 include(":app")
+include(":user")

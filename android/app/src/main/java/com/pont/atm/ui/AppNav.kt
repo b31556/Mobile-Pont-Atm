@@ -38,6 +38,8 @@ import com.pont.atm.BuildConfig
 import com.pont.atm.core.ApiException
 import com.pont.atm.core.ChargeOutcome
 import com.pont.atm.core.FlowState
+import com.pont.atm.core.InfoOutcome
+import com.pont.atm.core.InfoState
 import com.pont.atm.core.PresenceOutcome
 import com.pont.atm.core.PresenceState
 import com.pont.atm.nfc.NfcReader
@@ -71,12 +73,13 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     var resultReady by remember { mutableStateOf(false) }
     var sendStart by remember { mutableLongStateOf(0L) }
     var nfc by remember { mutableStateOf(reader.status()) }
-    // `atm` or `presence`: set by the server per terminal, remembered so a restart opens in the right mode.
+    // `atm`, `presence` or `info`: set by the server per terminal, remembered so a restart opens in the right mode.
     var mode by remember { mutableStateOf(session.mode) }
     var direction by remember { mutableStateOf(session.direction) }
     var zoneName by remember { mutableStateOf(session.zoneName) }
     val currentMode by rememberUpdatedState(mode)
     val presenceState by graph.presence.state.collectAsState()
+    val infoState by graph.info.state.collectAsState()
 
     fun noteResult(r: Result<*>) {
         r.onSuccess { online = true }.onFailure { online = (it as? ApiException)?.code != "no_connection" }
@@ -93,8 +96,8 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
             session.terminalName = c.name
             direction = c.direction; session.direction = c.direction
             zoneName = c.zoneName; session.zoneName = c.zoneName
-            val idle = flow.state.value is FlowState.Idle && graph.presence.state.value !is PresenceState.Sending
-            if (c.mode != mode && idle) { mode = c.mode; session.mode = c.mode; graph.presence.clear() }
+            val idle = flow.state.value is FlowState.Idle && graph.presence.state.value !is PresenceState.Sending && graph.info.state.value !is InfoState.Sending
+            if (c.mode != mode && idle) { mode = c.mode; session.mode = c.mode; graph.presence.clear(); graph.info.clear() }
         }
     }
 
@@ -121,7 +124,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     LifecycleResumeEffect(Unit) {
         nfc = reader.status()
         reader.enable { uid ->
-            if (acceptsCards(session.terminalToken != null)) scope.launch { if (currentMode == "presence") graph.presence.onTag(uid) else flow.onTag(uid) }
+            if (acceptsCards(session.terminalToken != null)) scope.launch { when (currentMode) { "presence" -> graph.presence.onTag(uid); "info" -> graph.info.onTag(uid); else -> flow.onTag(uid) } }
         }
         scope.launch { refreshConfig() }
         onPauseOrDispose { reader.disable() }
@@ -146,6 +149,18 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
         }
     }
 
+    // Info mode: the same success or refusal beep as the other modes, then back to "Tap a card" after a few seconds.
+    LaunchedEffect(infoState) {
+        val st = infoState
+        if (st is InfoState.Showing) {
+            online = st.outcome !is InfoOutcome.NoConnection
+            noteResult(Result.success(Unit))
+            if (infoSucceeded(st.outcome)) graph.beeper.ok() else graph.beeper.error()
+            delay(INFO_SHOW_MS)
+            graph.info.clear()
+        }
+    }
+
     LaunchedEffect(screen) {
         when (screen) {
             Screen.Charge -> if (session.terminalToken != null) noteResult(graph.presets.load())
@@ -159,8 +174,13 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
 
     val showProcessing = flowState is FlowState.Sending || (flowState is FlowState.Done && !resultReady)
     val presenceMode = mode == "presence" && screen != Screen.Pair
-    val dark = if (presenceMode) presenceState !is PresenceState.Showing else (waiting || showProcessing)
-    val showTabs = !presenceMode && flowState is FlowState.Idle && screen in tabScreens
+    val infoMode = mode == "info" && screen != Screen.Pair
+    val dark = when {
+        presenceMode -> presenceState !is PresenceState.Showing
+        infoMode -> infoState !is InfoState.Showing
+        else -> waiting || showProcessing
+    }
+    val showTabs = !presenceMode && !infoMode && flowState is FlowState.Idle && screen in tabScreens
 
     Surface(color = if (dark) PontColors.Ink else PontColors.Bg, contentColor = if (dark) Color.White else PontColors.Ink) {
         Box(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -170,6 +190,10 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
                         presenceMode -> PresenceScreen(
                             presenceState, api, session.terminalName.orEmpty(), direction, zoneName, onMenu = { menu = true },
                             onDebugTag = { uid -> scope.launch { graph.presence.onTag(uid) } },
+                        )
+                        infoMode -> InfoScreen(
+                            infoState, api, session.terminalName.orEmpty(), onMenu = { menu = true },
+                            onDebugTag = { uid -> scope.launch { graph.info.onTag(uid) } },
                         )
                         waiting -> TapScreen((flowState as FlowState.WaitingForCard).amount, nfc, onDebugTag = { uid -> scope.launch { flow.onTag(uid) } }) { flow.cancel() }
                         showProcessing -> ProcessingScreen(
