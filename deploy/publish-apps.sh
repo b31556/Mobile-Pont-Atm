@@ -6,27 +6,32 @@
 #   deploy/publish-apps.sh --no-build      sign and upload the apps built last time
 #   deploy/publish-apps.sh --dry-run       build and sign into a temporary folder, upload nothing
 #
-#   --host root@server    where to upload (default root@your-server)
-#   --url https://server  the server address built into the apps (default https://pont.example.com)
+#   --host user@server    where to upload      (or PONT_HOST)
+#   --url https://server  the server address built into the apps (or PONT_URL)
+#   --remote-dir /path    the downloads folder on the server       (or PONT_REMOTE_DIR)
+# There are no built-in values. Put them in private/deploy.env (ignored by git) or pass them. See deploy/README.md.
 #
-# The apps are copied into /var/lib/pont/downloads/ (pont-card.apk, pont-terminal.apk, pont-admin.apk) and apps.json is written last,
-# so the page never points at a file that is not there yet. Needs the release key made once in ~/.config/pont-atm/
-# (release.keystore and release-keystore.pass). Keep both safe: a phone only accepts an update signed with the same key.
+# The apps are copied into the downloads folder (pont-card.apk, pont-terminal.apk, pont-admin.apk) and apps.json is written last,
+# so the page never points at a file that is not there yet. Needs the release key made once, kept outside the repository
+# (KEYSTORE and KEYPASS_FILE). Keep both safe: a phone only accepts an update signed with the same key.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOST="root@your-server"
-URL="https://pont.example.com"
-REMOTE_DIR="/var/lib/pont/downloads"
-KEYSTORE="${KEYSTORE:-$HOME/.config/pont-atm/release.keystore}"
-KEYPASS_FILE="${KEYPASS_FILE:-$HOME/.config/pont-atm/release-keystore.pass}"
+# Where to deploy comes from private/deploy.env (not in git), the environment or the options; nothing is built in.
+[ -f "$ROOT/private/deploy.env" ] && . "$ROOT/private/deploy.env"
+HOST="${PONT_HOST:-}"
+URL="${PONT_URL:-}"
+REMOTE_DIR="${PONT_REMOTE_DIR:-}"
+KEYSTORE="${KEYSTORE:-$HOME/.config/pont/release.keystore}"
+KEYPASS_FILE="${KEYPASS_FILE:-$HOME/.config/pont/release-keystore.pass}"
 SDK="${ANDROID_HOME:-$HOME/Android/Sdk}"
 BUILD=1; DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) HOST="${2:?--host needs a value}"; shift 2 ;;
     --url) URL="${2:?--url needs a value}"; shift 2 ;;
+    --remote-dir) REMOTE_DIR="${2:?--remote-dir needs a value}"; shift 2 ;;
     --no-build) BUILD=0; shift ;;
     --dry-run) DRY=1; shift ;;
     -h|--help) sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -34,6 +39,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 die() { echo "Error: $*" >&2; exit 1; }
+[ -n "$URL" ] || die "no server address: pass --url, set PONT_URL, or put it in private/deploy.env"
+if [ "$DRY" != 1 ]; then [ -n "$HOST" ] || die "no server to upload to: pass --host, set PONT_HOST, or put it in private/deploy.env"; [ -n "$REMOTE_DIR" ] || die "no downloads folder: pass --remote-dir, set PONT_REMOTE_DIR, or put it in private/deploy.env"; fi
 
 [ -f "$KEYSTORE" ] || die "the release key is missing: $KEYSTORE"
 [ -f "$KEYPASS_FILE" ] || die "the release key's password file is missing: $KEYPASS_FILE"
