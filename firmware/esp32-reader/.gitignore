@@ -1,3 +1,4 @@
 .pio/
 include/config.h
 tools/.fake-reader.json
+.flashed.log

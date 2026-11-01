@@ -60,7 +60,8 @@ Tips: keep the RFID wires short (under 15 cm). If cards read unreliably, put a 1
 ## Flash it
 
 1. Install [PlatformIO](https://platformio.org/install/cli) (`pip install platformio`).
-2. `cp include/config.example.h include/config.h` and fill in your 2.4 GHz WiFi name and password and the server address (like `http://192.168.x.x:3000`). `config.h` is not committed.
+2. `cp include/config.example.h include/config.h` and fill in your 2.4 GHz WiFi name and password and the server address (like `http://192.168.x.x:3000`). `config.h` is not committed. For a server on the internet use an `https://` address; the reader then checks the server's certificate and sets its clock from the internet first.
+   To write many boards, run `tools/flash-many.sh` (plug a board in, it is written, unplug it, plug in the next; it keeps a list of their device ids in `.flashed.log`).
 3. Connect the ESP32 over USB and run `pio run -t upload`. Watch what it says with `pio device monitor`.
 
 Give the server a fixed address in your router (a DHCP reservation) so the reader keeps finding it.
