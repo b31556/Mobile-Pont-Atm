@@ -17,7 +17,7 @@ header{display:flex;justify-content:space-between;align-items:center;gap:2vmin;f
 .live::before{content:"";width:.7em;height:.7em;border-radius:50%;background:#F5B31F}
 .live[data-ok=true]::before{background:#5BD58A}
 
-.idle,.result{align-self:center;justify-self:center;text-align:center;display:grid;justify-items:center;gap:2.4vmin;max-width:96vw}
+.idle,.result{min-height:0;align-self:center;justify-self:center;text-align:center;display:grid;justify-items:center;gap:2.4vmin;max-width:96vw}
 .idle h1{font-size:clamp(34px,11vmin,140px);font-weight:800;letter-spacing:-.02em}
 .idle p{font-size:clamp(18px,3.4vmin,40px);opacity:.75}
 .rings{position:relative;width:clamp(120px,26vmin,320px);aspect-ratio:1;margin-bottom:1vmin}
@@ -34,7 +34,7 @@ header{display:flex;justify-content:space-between;align-items:center;gap:2vmin;f
 .balance{font-size:clamp(20px,4.4vmin,56px);font-weight:600}
 .balance b{font-size:1.9em;font-weight:800;margin:0;font-variant-numeric:tabular-nums}
 
-footer{display:flex;justify-content:space-between;align-items:center;gap:2vmin;min-height:2em}
+footer{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:2vmin;min-height:2em}
 #sound,#leave{font:inherit;font-size:clamp(14px,2.4vmin,26px);color:#fff;background:#ffffff26;border:2px solid #ffffff66;border-radius:999px;padding:.5em 1.1em;cursor:pointer}
 #sound:hover{background:#ffffff3d}
 #sound:focus-visible{outline:3px solid #F5B31F;outline-offset:3px}
@@ -53,7 +53,9 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:2vmin;m
 .entry button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .note{min-height:1.6em;font-size:clamp(16px,3vmin,36px);font-weight:600;color:#FFD08A}
 
-.cancelbtn{margin-top:3vmin;font-family:inherit;font-weight:700;font-size:clamp(18px,3vmin,30px);color:inherit;background:transparent;border:2px solid currentColor;border-radius:999px;padding:1.2vmin 4vmin;cursor:pointer;opacity:.85}
+/* The Cancel button lives in the footer, a row of its own, so a tall result can never push it off the screen. */
+.cancelbox{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:1vmin 2vmin;flex:1 1 auto;min-width:0}
+.cancelbtn{font-family:inherit;font-weight:700;font-size:clamp(18px,3vmin,30px);color:inherit;background:transparent;border:2px solid currentColor;border-radius:999px;padding:1vmin 4vmin;cursor:pointer;opacity:.85}
 .cancelbtn:hover{opacity:1;background:#ffffff22}
 .cancelbtn:disabled{opacity:.4;cursor:wait}
-.cancel-note{margin-top:1.5vmin;min-height:1.4em;font-size:clamp(14px,2.2vmin,24px);font-weight:600}
+.cancel-note{min-height:0;font-size:clamp(14px,2.2vmin,24px);font-weight:600}

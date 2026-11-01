@@ -64,9 +64,12 @@
   }, { passive: true });
 
   /* ---------- what is on screen ---------- */
+  // The button sits in the footer, outside the result, so it has to be put away by hand whenever the result goes.
+  function hideCancel() { $('cancel').hidden = true; $('cancel-note').textContent = ''; result.style.transform = ''; }
   function showIdle() {
     stage.dataset.state = 'idle';
     result.hidden = true; entry.hidden = true; idle.hidden = false;
+    hideCancel();
     document.title = state.name ? `${state.name} · Tap your card` : 'Tap your card';
   }
 
@@ -82,7 +85,7 @@
       img.alt = '';
       img.onerror = () => { photo.replaceChildren(initial(e.card.name)); };
       img.src = `/display/photo/${encodeURIComponent(e.card.id)}?v=${e.seq}`;
-      photo.appendChild(img);
+      img.onload = fit; photo.appendChild(img);
     } else photo.appendChild(initial('?'));
     $('name').textContent = e.card ? e.card.name : '';
     $('name').hidden = !e.card;
@@ -99,9 +102,22 @@
     const cancel = $('cancel'), canNow = !!(state.canCancel && e.ref);
     cancel.hidden = !canNow; cancel.disabled = false; cancel.dataset.seq = String(e.seq);
     $('cancel-note').textContent = '';
+    fit();
     beep(e.sound);
     holdTimer = setTimeout(showIdle, canNow ? Math.max(HOLD_MS, CANCEL_HOLD_MS) : HOLD_MS);
   }
+  // Whatever the screen shape, the result is shrunk until it fits between the header and the footer.
+  function fit() {
+    const r = result;
+    r.style.transform = '';
+    if (r.hidden) return;
+    const header = stage.querySelector('header'), footer = stage.querySelector('footer');
+    const room = footer.offsetTop - (header.offsetTop + header.offsetHeight);
+    const need = r.scrollHeight, wide = r.scrollWidth, roomW = stage.clientWidth;
+    const k = Math.min(1, room / need, roomW / wide);
+    if (k < 1) r.style.transform = `scale(${Math.max(k, 0.3)})`;
+  }
+  window.addEventListener('resize', fit);
   function initial(text) { const s = document.createElement('span'); s.textContent = (text || '?').trim().slice(0, 1).toUpperCase(); return s; }
 
   function setReader(s) {
@@ -122,9 +138,9 @@
       const r = await fetch('/display/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ seq: Number(button.dataset.seq) }), credentials: 'same-origin' });
       if (r.ok) return;          // the server now shows a "Cancelled" notice of its own, which arrives like any other tap
       const body = await r.json().catch(() => ({}));
-      note.textContent = body.error || 'It could not be cancelled.';
+      note.textContent = body.error || 'It could not be cancelled.'; fit();
       if (r.status === 401) showEntry('This screen was signed out. Enter the code again.');
-    } catch { note.textContent = 'Can’t reach the server.'; }
+    } catch { note.textContent = 'Can’t reach the server.'; fit(); }
     button.disabled = false;
     holdTimer = setTimeout(showIdle, CANCEL_HOLD_MS);
   });
@@ -138,6 +154,7 @@
     clearTimeout(retryTimer); clearTimeout(holdTimer);
     stage.dataset.state = 'idle';
     idle.hidden = true; result.hidden = true; entry.hidden = false;
+    hideCancel();
     live.hidden = true; $('sound').hidden = true; $('leave').hidden = true;
     $('reader').textContent = '';
     document.title = 'Reader display';
