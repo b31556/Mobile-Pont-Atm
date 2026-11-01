@@ -3,10 +3,12 @@ import { dirname } from 'node:path';
 import { openDb } from './db.js';
 import { buildApp } from './app.js';
 import { seedStaff } from './auth.js';
+import { jwtSecretProblem } from './config.js';
 
 const dbPath = process.env.DB_PATH ?? './data/pont.db';
 const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret) { console.error('JWT_SECRET is required'); process.exit(1); }
+const secretProblem = jwtSecretProblem(jwtSecret);
+if (secretProblem || !jwtSecret) { console.error(secretProblem ?? 'JWT_SECRET is required'); process.exit(1); }
 mkdirSync(dirname(dbPath), { recursive: true });
 const db = openDb(dbPath);
 const app = buildApp({ db, jwtSecret, dataDir: dirname(dbPath), trustProxy: process.env.TRUST_PROXY === '1' });

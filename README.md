@@ -154,7 +154,7 @@ Every terminal has a **display page**: a screen next to the reader that shows ea
 
 ## Security note
 
-The server speaks plain HTTP unless you put HTTPS in front of it. The ESP32 readers (and the debug app) send card UIDs, tokens and the admin login unencrypted, so run it only on a network you trust (a home or office LAN, or Tailscale) or behind an HTTPS reverse proxy. Card UIDs can be cloned with cheap hardware, which is fine for low-value points but not for money. Use a long random `JWT_SECRET`, a strong admin password, and revoke lost phones and readers straight away.
+The server speaks plain HTTP unless you put HTTPS in front of it. The ESP32 readers (and the debug app) send card UIDs, tokens and the admin login unencrypted, so run it only on a network you trust (a home or office LAN, or Tailscale) or behind an HTTPS reverse proxy. Card UIDs can be cloned with cheap hardware, which is fine for low-value points but not for money. Use a long random `JWT_SECRET` (the server refuses to start with fewer than 32 characters; make one with `openssl rand -hex 32`), a strong admin password, and revoke lost phones and readers straight away.
 
 ## License
 
