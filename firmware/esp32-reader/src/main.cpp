@@ -139,7 +139,10 @@ int postJson(const String& path, const String& body, String& answer, bool withTo
   int code = 0;
   for (int pass = 0; pass < 2; pass++) {
     const bool reused = client.connected();
-    HTTPClient http;
+    const uint32_t startedMs = millis();
+    // Kept for the life of the program, on purpose: the library closes the connection when an HTTPClient is destroyed,
+    // so one made fresh for each call would do a new TLS handshake every time (about 1.7 s here instead of about 0.1 s).
+    static HTTPClient http;
     http.setReuse(true);
     http.setConnectTimeout(tls ? 6000 : 3000);
     http.setTimeout(4000);
@@ -151,6 +154,7 @@ int postJson(const String& path, const String& body, String& answer, bool withTo
     if (stage) stage(3);                     // the server has answered
     if (code > 0) answer = http.getString();
     http.end();
+    Serial.printf("%s -> HTTP %d in %lu ms (%s connection)\n", path.c_str(), code, static_cast<unsigned long>(millis() - startedMs), reused ? "kept" : "new");
     if (code > 0) break;
     if (tls && !reused) {                    // a fresh connection failed: say why (a wrong clock or certificate shows up here)
       char why[100] = "";
@@ -269,7 +273,7 @@ bool readCard(char* uid, size_t size) {
 /** Says in the serial log why WiFi lets go: reason 15 / 202 = wrong password, 201 = network not found, 2 = auth expired. */
 void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) Serial.printf("WiFi: disconnected, reason %d\n", info.wifi_sta_disconnected.reason);
-  if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) Serial.printf("WiFi: got address %s\n", WiFi.localIP().toString().c_str());
+  if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) { WiFi.setSleep(false); Serial.printf("WiFi: got address %s\n", WiFi.localIP().toString().c_str()); }
 }
 
 /** Prints the networks this reader can see, to tell a wrong name from a weak signal from a 5 GHz-only network. */
@@ -292,6 +296,7 @@ void listNetworks() {
 void connectWifi() {
   WiFi.onEvent(onWifiEvent);
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);                    // this reader is plugged in: modem sleep only adds a wait of 100 ms or more to every exchange
   WiFi.setAutoReconnect(true);
   Serial.printf("WiFi: joining \"%s\"\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
