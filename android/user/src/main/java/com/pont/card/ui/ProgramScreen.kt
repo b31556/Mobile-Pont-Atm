@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -43,12 +46,13 @@ import java.time.LocalTime
 fun ProgramScreen(
     state: ProgramState, card: PublicCard?, onRefresh: () -> Unit,
     onLike: (String) -> Unit, onPlace: (String, Placement) -> Unit, onRemove: (String) -> Unit,
+    onSkip: (String) -> Unit = {}, onUnskipAll: () -> Unit = {},
 ) {
     val p = palette
     val doc = state.doc
     Column(Modifier.fillMaxSize().background(p.bg).statusBarsPadding()) {
         if (doc == null || doc.days.isEmpty()) { NoProgram(state.loading, state.offline, state.problem, onRefresh); return@Column }
-        Loaded(doc, state, card, onRefresh, onLike, onPlace, onRemove)
+        Loaded(doc, state, card, onRefresh, onLike, onPlace, onRemove, onSkip, onUnskipAll)
     }
 }
 
@@ -68,10 +72,11 @@ private fun NoProgram(loading: Boolean, offline: Boolean, problem: String?, onRe
 @Composable
 private fun Loaded(
     doc: ProgramDoc, state: ProgramState, card: PublicCard?, onRefresh: () -> Unit,
-    onLike: (String) -> Unit, onPlace: (String, Placement) -> Unit, onRemove: (String) -> Unit,
+    onLike: (String) -> Unit, onPlace: (String, Placement) -> Unit, onRemove: (String) -> Unit, onSkip: (String) -> Unit, onUnskipAll: () -> Unit,
 ) {
     val p = palette
-    val today = LocalDate.now().toString()
+    val clock by rememberClock()
+    val today = clock.first
     var tab by rememberSaveable { mutableIntStateOf(0) }                 // 0 Plan, 1 Pulse
     var dayKey by rememberSaveable { mutableStateOf<String?>(null) }
     var queueAll by rememberSaveable { mutableStateOf(false) }
@@ -82,8 +87,9 @@ private fun Loaded(
     var liveStay by remember { mutableStateOf<Pair<String, Placement>?>(null) }
 
     val day: ProgramDay = doc.days.firstOrNull { it.key == dayKey } ?: doc.days.firstOrNull { it.date == today } ?: doc.days.first()
-    val nowMin = if (day.date == today) LocalTime.now().let { it.hour * 60 + it.minute } else null
+    val nowMin = if (day.date == today) clock.second else null
     val (d0, _) = ProgramMath.domain(state.eventsOn(day.key))
+    val following = pulseT == null && nowMin != null          // Pulse follows the real time until you drag it
     val t = pulseT ?: nowMin ?: ((d0 + 100) / 5 * 5)
     val live = tab == 1
 
@@ -107,8 +113,8 @@ private fun Loaded(
             if (tab == 0) PlanTab(
                 state, day, nowMin, queueAll, { queueAll = it }, idx, { idx = it }, selId, { selId = it },
                 onPlace, { id -> onRemove(id); liveStay = null }, { id, at -> liveStay = if (at == null) null else id to at },
-                onLike, { sheetId = it },
-            ) else PulseTab(state, day, t, { pulseT = it }, { sheetId = it }, onLike)
+                onLike, { sheetId = it }, onSkip, onUnskipAll,
+            ) else PulseTab(state, day, t, nowMin, following, { pulseT = it }, { pulseT = null }, { sheetId = it }, onLike)
         }
     }
 
@@ -118,7 +124,7 @@ private fun Loaded(
             val planned = state.placed[id]
             val snap = ProgramMath.snapFor(ProgramMath.domain(state.eventsOn(e.day)).let { it.second - it.first })
             val today2 = doc.days.firstOrNull { it.key == e.day }?.date == today
-            val want = if (today2 && LocalTime.now().let { it.hour * 60 + it.minute } in e.s until e.e) LocalTime.now().let { it.hour * 60 + it.minute } else e.s
+            val want = if (today2 && clock.second in e.s until e.e) clock.second else e.s
             val fit = ProgramMath.fitAt(e, want, ProgramMath.defaultDur(e), state.placedOn(e.day).filter { it.event.id != id }.map { it.at }, snap)
             EventSheet(
                 e, id in state.likes, planned, fit, onLike = { onLike(id) },
@@ -129,6 +135,18 @@ private fun Loaded(
         }
     }
 }
+
+/** The date and the minute of the day, renewed at the start of every minute, so what shows "now" never goes stale. */
+@Composable
+private fun rememberClock(): State<Pair<String, Int>> = produceState(initialValue = clockNow()) {
+    while (true) {
+        val now = LocalTime.now()
+        delay(60_000L - (now.second * 1000L + now.nano / 1_000_000L) + 50L)
+        value = clockNow()
+    }
+}
+
+private fun clockNow(): Pair<String, Int> = LocalDate.now().toString() to LocalTime.now().let { it.hour * 60 + it.minute }
 
 /** The points on top. On Plan: what you would have with your plan. On Pulse: what the card has really earned so far. */
 @Composable

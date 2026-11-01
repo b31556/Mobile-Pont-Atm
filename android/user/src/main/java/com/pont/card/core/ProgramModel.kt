@@ -63,7 +63,7 @@ class ProgramRepository(private val kv: KeyValueStore, private val fetcher: Prog
     private companion object { const val KEY = "program" }
 }
 
-@Serializable data class PlanData(val likes: List<String> = emptyList(), val placed: Map<String, PlacedDto> = emptyMap())
+@Serializable data class PlanData(val likes: List<String> = emptyList(), val placed: Map<String, PlacedDto> = emptyMap(), val skipped: List<String> = emptyList())
 @Serializable data class PlacedDto(val start: Int, val dur: Int)
 
 /** What the person liked and planned, kept on the phone. */
@@ -82,6 +82,8 @@ data class ProgramState(
     val problem: String? = null,
     val likes: Set<String> = emptySet(),
     val placed: Map<String, Placement> = emptyMap(),
+    /** Events the person does not want: they are left out of the cards on Plan until brought back. */
+    val skipped: Set<String> = emptySet(),
 ) {
     fun event(id: String): ProgramEvent? = doc?.events?.firstOrNull { it.id == id }
     fun eventsOn(day: String): List<ProgramEvent> = doc?.events.orEmpty().filter { it.day == day }
@@ -101,14 +103,14 @@ class ProgramModel(private val repo: ProgramRepository, private val store: PlanS
     private fun initial(): ProgramState {
         val data = store.load()
         val doc = repo.cached()
-        return pruned(ProgramState(doc = doc, likes = data.likes.toSet(), placed = data.placed.mapValues { Placement(it.value.start, it.value.dur) }))
+        return pruned(ProgramState(doc = doc, likes = data.likes.toSet(), placed = data.placed.mapValues { Placement(it.value.start, it.value.dur) }, skipped = data.skipped.toSet()))
     }
 
     /** Likes and plans of events the program no longer has are dropped. */
     private fun pruned(s: ProgramState): ProgramState {
         val doc = s.doc ?: return s
         val ids = doc.events.map { it.id }.toSet()
-        return s.copy(likes = s.likes.filter { it in ids }.toSet(), placed = s.placed.filterKeys { it in ids })
+        return s.copy(likes = s.likes.filter { it in ids }.toSet(), placed = s.placed.filterKeys { it in ids }, skipped = s.skipped.filter { it in ids }.toSet())
     }
 
     fun refresh() {
@@ -133,9 +135,15 @@ class ProgramModel(private val repo: ProgramRepository, private val store: PlanS
 
     fun remove(id: String) = update { it.copy(placed = it.placed - id) }
 
+    /** "Not for me": the event stops coming up as a card on Plan. */
+    fun skip(id: String) = update { it.copy(skipped = it.skipped + id) }
+
+    /** Brings back every skipped event. */
+    fun unskipAll() = update { it.copy(skipped = emptySet()) }
+
     private fun update(change: (ProgramState) -> ProgramState) {
         _state.value = change(_state.value).also { persist(it) }
     }
 
-    private fun persist(s: ProgramState) = store.save(PlanData(s.likes.toList(), s.placed.mapValues { PlacedDto(it.value.start, it.value.dur) }))
+    private fun persist(s: ProgramState) = store.save(PlanData(s.likes.toList(), s.placed.mapValues { PlacedDto(it.value.start, it.value.dur) }, s.skipped.toList()))
 }

@@ -6,7 +6,7 @@ import { findCardByUid, type CardRow } from './cards.js';
 import { publishCancelled, publishTap } from './display.js';
 import type { Canceller } from '../storno.js';
 import { recordSuggestion } from './suggestions.js';
-import { computePoints, createZone, defaultZone, getZone, listZones, updateZone, validateSettings, DEFAULT_SETTINGS, type Zone } from '../presence.js';
+import { computePoints, createZone, defaultZone, getZone, listZones, updateZone, validateSettings, DEFAULT_SETTINGS, type PresenceSettings, type Zone } from '../presence.js';
 
 interface SessionRow {
   id: number; card_id: string; zone_id: string | null; in_at: string; in_terminal: string | null; in_key: string | null; expired_minutes: number | null;
@@ -256,6 +256,40 @@ export function registerPresence(app: FastifyInstance) {
       change.settings = v.value;
     }
     return zoneJson(updateZone(db, id, change)!);
+  });
+
+  /**
+   * Many zones at once, from a pasted file: { zones: [{ name, settings }] }. A zone whose name exists (any letter case) gets its settings
+   * replaced, any other name makes a new zone; nothing is ever deleted. Each zone is checked the way POST /zones checks it, and if
+   * any one is wrong nothing at all is changed. Without `settings` a new zone gets the default rules and an old one keeps its own.
+   */
+  app.post('/zones/import', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const list = (req.body as { zones?: unknown } | null | undefined)?.zones;
+    if (!Array.isArray(list) || list.length === 0) return reply.code(400).send({ error: 'Send { "zones": [ { "name": ..., "settings": { ... } } ] } with at least one zone' });
+    if (list.length > 100) return reply.code(400).send({ error: 'At most 100 zones can be imported at once' });
+    const checked: { name: string; settings?: PresenceSettings }[] = [];
+    const seen = new Set<string>();
+    for (const [i, raw] of list.entries()) {
+      const z = (raw && typeof raw === 'object' ? raw : {}) as { name?: unknown; settings?: unknown };
+      const name = typeof z.name === 'string' ? z.name.trim() : '';
+      if (!name) return reply.code(400).send({ error: `Zone ${i + 1}: give the zone a name` });
+      if (seen.has(name.toLowerCase())) return reply.code(400).send({ error: `Zone “${name}”: the name is listed twice` });
+      seen.add(name.toLowerCase());
+      if (z.settings === undefined) { checked.push({ name }); continue; }
+      const v = validateSettings(z.settings);
+      if (!v.ok) return reply.code(400).send({ error: `Zone “${name}”: ${v.error}` });
+      checked.push({ name, settings: v.value });
+    }
+    const done = db.transaction(() => {
+      let created = 0, updated = 0;
+      for (const z of checked) {
+        const old = db.prepare('select id from zones where name=? collate nocase').get(z.name) as { id: string } | undefined;
+        if (old) { if (z.settings) updateZone(db, old.id, { settings: z.settings }); updated++; }
+        else { createZone(db, z.name, z.settings ?? { ...DEFAULT_SETTINGS }); created++; }
+      }
+      return { created, updated };
+    })();
+    return { ...done, zones: listZones(db).map(zoneJson) };
   });
 
   app.delete('/zones/:id', { preHandler: app.requireAdmin }, async (req, reply) => {

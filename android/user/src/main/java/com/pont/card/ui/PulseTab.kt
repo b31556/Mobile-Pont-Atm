@@ -49,7 +49,10 @@ private const val STEP = 30
 
 /** What is open at a chosen moment: a graph of how busy the day is to drag along, and below it the events open then, soonest closing first. */
 @Composable
-fun PulseTab(state: ProgramState, day: ProgramDay, t: Int, onT: (Int) -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit) {
+fun PulseTab(
+    state: ProgramState, day: ProgramDay, t: Int, nowMin: Int?, following: Boolean, onT: (Int) -> Unit, onNow: () -> Unit,
+    onOpen: (String) -> Unit, onLike: (String) -> Unit,
+) {
     val p = palette
     val events = state.eventsOn(day.key)
     val (d0, d1) = ProgramMath.domain(events)
@@ -68,7 +71,15 @@ fun PulseTab(state: ProgramState, day: ProgramDay, t: Int, onT: (Int) -> Unit, o
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(hm(at), style = Type.display(28), color = p.ink)
-                Text("${open.size} open, ${soon.size} close within 30 min", color = p.ink2, fontSize = 13.sp, modifier = Modifier.padding(bottom = 4.dp))
+                Text("${open.size} open, ${soon.size} close within 30 min", color = p.ink2, fontSize = 13.sp, modifier = Modifier.weight(1f).padding(bottom = 4.dp))
+                when {
+                    nowMin != null && following -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                        Box(Modifier.size(8.dp).background(p.green, CircleShape))
+                        Text("Live", color = p.green, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                    }
+                    nowMin != null -> Text("Now ${hm(nowMin)}", color = p.green, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp,
+                        modifier = Modifier.padding(bottom = 4.dp).clip(RoundedCornerShape(50)).background(p.greenSoft).clickable(role = Role.Button, onClick = onNow).padding(horizontal = 10.dp, vertical = 6.dp))
+                }
             }
         }
         item {

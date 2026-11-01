@@ -97,7 +97,7 @@ describe('the program planner page', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
     expect(res.body).toContain("fetch('/public/program')");
-    expect(res.body).toContain('id="view"');
+    expect(res.body).toContain('id="lanes"');
     const r = await get(app, '/program/');
     expect(r.statusCode).toBe(301); expect(r.headers.location).toBe('/program');
   });
@@ -105,11 +105,26 @@ describe('the program planner page', () => {
     const { app } = await make();
     expect((await get(app, '/')).body).toContain('href="/program"');
   });
-  it('reads the program and the card from the public endpoints only', async () => {
+  it('only reads the program, and never asks a visitor for a card number', async () => {
     const { app } = await make();
     const body = (await get(app, '/program')).body;
     const calls = [...body.matchAll(/fetch\('([^']+)'/g)].map(m => m[1]);
-    expect(new Set(calls)).toEqual(new Set(['/public/program', '/public/cards']));
+    expect(new Set(calls)).toEqual(new Set(['/public/program']));
     expect(body).not.toMatch(/Authorization|Bearer/i);
+    expect(body).not.toMatch(/card number|carduid|\/public\/cards|uuid/i);
+  });
+});
+
+describe('the app page says what each app really does', () => {
+  it('describes one card, the program, and the staff and admin tools', async () => {
+    const { app } = await make();
+    const body = (await get(app, '/app')).body;
+    expect(body).toMatch(/keeps one card: yours/);
+    expect(body).not.toMatch(/kids|more cards/i);
+    expect(body).toMatch(/drag them onto your day/);
+    expect(body).toMatch(/Info kiosk/);
+    expect(body).toMatch(/Cancel the last charge/);
+    expect(body).toMatch(/stay signed in for a week/);
+    expect(body).toContain('href="/program"');
   });
 });

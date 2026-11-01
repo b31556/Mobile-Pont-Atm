@@ -81,6 +81,21 @@ class ProgramModelTest {
         assertNotNull(m.state.value.event("a")); assertNull(m.state.value.event("zzz"))
     }
 
+    @Test fun skippingAnEventLeavesItOutUntilBroughtBack() {
+        val m = model(ProgramFetch.Ok(doc(event("a"), event("b")))); m.refresh()
+        m.skip("a"); m.skip("b")
+        assertEquals(setOf("a", "b"), model(ProgramFetch.Offline).state.value.skipped)     // kept across a restart
+        m.unskipAll()
+        assertTrue(m.state.value.skipped.isEmpty()); assertTrue(model(ProgramFetch.Offline).state.value.skipped.isEmpty())
+    }
+
+    @Test fun skippedEventsTheProgramNoLongerHasAreForgotten() {
+        val m = model(ProgramFetch.Ok(doc(event("a"), event("b")))); m.refresh()
+        m.skip("a"); m.skip("b")
+        val next = model(ProgramFetch.Ok(doc(event("b")))); next.refresh()
+        assertEquals(setOf("b"), next.state.value.skipped)
+    }
+
     @Test fun aDamagedSavedCopyIsIgnored() {
         kv.put("program", "{not json"); kv.put("plan", "also not json")
         val m = model(ProgramFetch.Offline)

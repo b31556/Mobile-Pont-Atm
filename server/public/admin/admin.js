@@ -5,7 +5,7 @@ const root = document.getElementById('root');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (s, r = document) => r.querySelector(s);
 
-const state = { reportId: null, tl: { zoom: 70, days: null, scroll: null, atEnd: true }, page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [], zones: [], zoneId: null, devices: [] };
+const state = { reportId: null, tl: { zoom: 70, days: null, scroll: null, atEnd: true }, page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [], zones: [], zoneId: null, devices: [], progDraft: null, jsonImport: null };
 /* In the Pont Admin app the sign-in is kept in the app's own storage (the server gives that token a week); in a browser it ends with the tab. */
 const tokenStore = () => (window.PontNative ? localStorage : sessionStorage);
 let token = null;
@@ -16,6 +16,7 @@ const LIVE_LABELS = { connecting: 'Connecting…', live: 'Live', waiting: 'Updat
 /* ---------- api ---------- */
 async function api(method, path, body) {
   const opts = { method, headers: {} };
+  if (method === 'GET') opts.cache = 'no-store';   // /public/program is cached for 30 s; an admin must see what is really stored
   if (token) opts.headers.authorization = 'Bearer ' + token;
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) { opts.headers['content-type'] = 'application/json'; opts.body = JSON.stringify(body); }
@@ -86,6 +87,7 @@ async function load() {
   else if (p === 'presence') {
     state.data = { sessions: await api('GET', '/presence/sessions') };
   }
+  else if (p === 'program') state.data = { program: await api('GET', '/public/program') };
   else state.data = { staff: await api('GET', '/staff') };
 }
 async function refresh() { try { await load(); } catch (e) { if (token) state.toast = e.message; } render(); }
@@ -106,7 +108,7 @@ function loginView() {
 function shell(inner) {
   const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id || (id === 'cards' && state.page === 'report')}">${l}${id === 'cards' && state.suggestions.length ? `<span class="badge" title="Suggested cards">${state.suggestions.length}</span>` : ''}${id === 'readers' && state.devices.some(d => d.status === 'pending') ? `<span class="badge" title="Waiting for approval">${state.devices.filter(d => d.status === 'pending').length}</span>` : ''}</button>`;
   return `<div class="adm"><aside class="side"><div class="brand"><span class="coin">P</span>Pont admin</div>
-    ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('readers', 'Readers')}${item('presence', 'Check-in')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
+    ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('readers', 'Readers')}${item('presence', 'Check-in')}${item('program', 'Program')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
     <div class="me"><div class="live" id="live" data-state="${liveState}" title="Pages update by themselves when something changes">${LIVE_LABELS[liveState] || ''}</div><button data-act="signout">Sign out</button></div></aside>
     <div class="pane">${inner}</div></div>${state.drawer ? drawerView() : ''}${state.modal ? modalView() : ''}
     ${state.toast ? `<div class="atoast" role="status">${esc(state.toast)}</div>` : ''}`;
@@ -171,7 +173,7 @@ function presencePane() {
       <td>${x.status === 'closed' ? `<button class="btn line sm" data-act="undovisit" data-id="${x.id}">Cancel check-out</button>` : ''}</td></tr>`).join('')
     : '<tr><td colspan="8" class="empty">No visits yet.</td></tr>';
   return `<div class="ph"><div><h1>Check-in</h1><p>Points for time spent inside. Each zone has its own rules; each check-in terminal belongs to one zone (set that under Terminals).</p></div><span class="sp"></span>
-      <button class="btn line" data-act="refresh">Refresh</button><button class="btn green" data-act="newzone">Add zone</button></div>
+      <button class="btn line" data-act="refresh">Refresh</button><button class="btn line" data-act="zonesimport">Import JSON</button><button class="btn line" data-act="zonesexport">Export JSON</button><button class="btn green" data-act="newzone">Add zone</button></div>
     <div class="zonechips" role="group" aria-label="Zones">${chips}</div>
     <div class="twocol">
       <form class="panel" id="rules" autocomplete="off"><h2>Rules for ${esc(zone.name)}</h2>
@@ -322,8 +324,162 @@ function staffPane() {
     </tbody></table></div>`;
 }
 
+/* ---------- program ---------- */
+const PROGRAM_MODELS = { rate: 'Points per time (rate)', tasks: 'A list of tasks', flat: 'Fixed award for staying to the end' };
+const KIND_LABELS = { time: 'Time', task: 'Task', mix: 'Mix' };
+
+function programPane() {
+  const doc = state.data.program;
+  if (!doc) return '';
+  const P = PontProgram, draft = state.progDraft || P.settingsForm(doc);
+  const dayRows = draft.days.map((d, i) => `<div class="dayrow2" data-dayrow data-new="${d.isNew ? 1 : 0}">
+      <label class="field"><span>Key</span><input data-k="key" value="${esc(d.key)}" maxlength="12" autocapitalize="off" placeholder="day3"${d.isNew ? '' : ' readonly title="The key of a day can’t change, because events refer to it"'}></label>
+      <label class="field"><span>Label</span><input data-k="label" value="${esc(d.label)}" maxlength="30" placeholder="Day 3"></label>
+      <label class="field"><span>Date</span><input data-k="date" type="date" value="${esc(d.date)}"></label>
+      <button class="btn line sm" type="button" data-act="rmday" data-i="${i}" aria-label="Remove day ${esc(d.label || d.key)}"${draft.days.length < 2 ? ' disabled' : ''}>Remove</button></div>`).join('');
+  const groups = P.groups(doc).map(g => `<tr class="dayhead"><td colspan="5"><b>${g.day ? esc(g.day.label) : 'Other'}</b>${g.day ? ' · ' + esc(g.day.date) : ' · events on a day that is not in the program'} · ${plural(g.events.length, 'event')}</td></tr>`
+    + (g.events.length ? g.events.map(e => `<tr data-act="editevent" data-id="${esc(e.id)}">
+      <td><b>${esc(e.title)}</b>${e.kind ? ` <span class="pill mute">${esc(KIND_LABELS[e.kind] || e.kind)}</span>` : ''}<div class="subnote mono">${esc(e.id)}</div></td>
+      <td class="nowrap">${esc(P.timeRange(e))}</td><td>${esc(e.room)}</td><td>${esc(P.summary(e))}</td>
+      <td><div class="rowbtns"><button class="btn line sm" data-act="editevent" data-id="${esc(e.id)}">Edit</button><button class="btn line sm" data-act="delevent" data-id="${esc(e.id)}" data-title="${esc(e.title)}">Delete</button></div></td></tr>`).join('')
+      : '<tr class="none"><td colspan="5" class="empty">No events on this day yet.</td></tr>')).join('');
+  return `<div class="ph"><div><h1>Program</h1><p>The event program that the website and the Pont Card app show: the days, the points goal and every event with how it scores. Every save replaces the whole program on the server.</p></div><span class="sp"></span>
+      <button class="btn line" data-act="refresh">Refresh</button><button class="btn line" data-act="progimport">Import JSON</button><button class="btn line" data-act="progexport">Export JSON</button><button class="btn green" data-act="newevent">Add event</button></div>
+    <form class="panel" id="progsettings" autocomplete="off"><h2>Settings</h2>
+      <label class="field"><span>Program title</span><input id="p-title" value="${esc(draft.title)}" maxlength="80" required></label>
+      <div class="grid3">
+        <label class="field"><span>Points needed in all</span><input id="p-total" type="number" min="0" step="1" inputmode="numeric" value="${esc(draft.total)}"></label>
+        <label class="field"><span>Day with its own minimum</span><select id="p-day">${goalDayOptions(draft)}</select></label>
+        <label class="field"><span>Points needed on that day</span><input id="p-daymin" type="number" min="0" step="1" inputmode="numeric" value="${esc(draft.dayMin)}"></label>
+      </div>
+      <h3 class="sub">Days</h3>
+      <div id="p-days">${dayRows}</div>
+      <p class="err" id="p-err" role="alert"></p>
+      <div class="formbtns"><button class="btn green" type="submit">Save settings</button><button class="btn line" type="button" data-act="addday"${draft.days.length >= 4 ? ' disabled title="A program has up to 4 days"' : ''}>Add a day</button></div>
+    </form>
+    <div class="secthead"><h2 class="sect">Events (${doc.events.length})</h2><span class="sp"></span>${doc.events.length ? '<button class="btn line sm" data-act="clearevents">Clear all events</button>' : ''}</div>
+    <div class="tw"><table class="progtable"><thead><tr><th>Event</th><th>Time</th><th>Room</th><th>Scoring</th><th></th></tr></thead><tbody>${groups}</tbody></table></div>`;
+}
+
+const goalDayOptions = draft => draft.days.filter(d => d.key.trim()).map(d => { const k = d.key.trim().toLowerCase(); return `<option value="${esc(k)}"${k === draft.dayKey ? ' selected' : ''}>${esc(d.label || k)}</option>`; }).join('');
+
+/** Copies what is typed in the settings form into the draft, so a redraw (a toast, an added day) never loses it. */
+function readSettingsForm() {
+  if (!$('#progsettings')) return;
+  state.progDraft = { title: $('#p-title').value, total: $('#p-total').value, dayKey: $('#p-day').value, dayMin: $('#p-daymin').value,
+    days: [...document.querySelectorAll('[data-dayrow]')].map(r => ({ key: r.querySelector('[data-k=key]').value, label: r.querySelector('[data-k=label]').value, date: r.querySelector('[data-k=date]').value, isNew: r.dataset.new === '1' })) };
+}
+/** The goal's day list follows the keys of the days as they are typed. */
+function refreshGoalDays() {
+  const sel = $('#p-day'); if (!sel || !state.progDraft) return;
+  state.progDraft.dayKey = sel.value;
+  sel.innerHTML = goalDayOptions(state.progDraft);
+  state.progDraft.dayKey = sel.value;
+}
+
+/** Saves a change to the program: takes the program as the server has it now, lets [change] alter it (returns { doc } or { error }) and replaces it. */
+async function saveProgram(change) {
+  const r = change(PontProgram.clean(await api('GET', '/public/program')));
+  if (r.error) throw new Error(r.error);
+  state.data.program = await api('PUT', '/program', r.doc);
+  return r;
+}
+
+function openEventDrawer(id) {
+  const doc = state.data.program, e = id && doc.events.find(x => x.id === id);
+  if (id && !e) return toast('That event is no longer in the program.');
+  state.drawer = { kind: 'event', id: e ? e.id : null, form: e ? PontProgram.formFromEvent(e) : PontProgram.blankForm(doc), error: '' };
+  render();
+}
+
+function eventDrawer() {
+  const d = state.drawer, f = d.form, doc = state.data.program, isNew = !d.id;
+  const input = (id, label, value, extra = '', hint = '') => `<label class="field"><span>${label}</span><input id="ev-${id}" value="${esc(value)}" ${extra}>${hint ? `<small>${hint}</small>` : ''}</label>`;
+  const nums = (id, label, value, hint = '', extra = '') => input(id, label, value, `type="number" min="0" step="1" inputmode="numeric" ${extra}`, hint);
+  const text = (id, label, value) => `<label class="field"><span>${label}</span><textarea id="ev-${id}" rows="2" maxlength="300">${esc(value)}</textarea></label>`;
+  const sel = (id, label, options, value, hint = '') => `<label class="field"><span>${label}</span><select id="ev-${id}">${options.map(([v, l]) => `<option value="${esc(v)}"${v === value ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>${hint ? `<small>${hint}</small>` : ''}</label>`;
+  let scoring = '';
+  if (f.model === 'rate') {
+    scoring = `<div class="grid2">${nums('rate', 'Points per block', f.rate, '', 'min="1"')}${nums('block', 'Block length (minutes)', f.block, '', 'min="1"')}</div>
+      <div class="grid2">${nums('cap', 'Most points (optional)', f.cap, 'Empty for no limit', 'min="1"')}${nums('maxMin', 'Longest stay that counts (min, optional)', f.maxMin, '', 'min="1"')}</div>`;
+  } else if (f.model === 'tasks') {
+    scoring = `<div id="ev-items"><div class="itemrow head"><span>Task</span><span>Points</span><span>Min</span><span></span></div>
+      ${f.items.map((r, i) => `<div class="itemrow" data-item><input data-k="name" value="${esc(r.name)}" maxlength="60" placeholder="Round 1" aria-label="Task ${i + 1} name"><input data-k="pts" type="number" min="0" step="1" inputmode="numeric" value="${esc(r.pts)}" aria-label="Task ${i + 1} points"><input data-k="min" type="number" min="1" step="1" inputmode="numeric" value="${esc(r.min)}" aria-label="Task ${i + 1} minutes"><button class="btn line sm" type="button" data-act="rmitem" data-i="${i}" aria-label="Remove task ${i + 1}">×</button></div>`).join('')}
+      <button class="btn line sm" type="button" data-act="additem"${f.items.length >= 20 ? ' disabled' : ''}>Add a task</button></div>
+      <div id="ev-home"><div class="itemrow home head"><span>Home task (optional)</span><span>Points</span><span></span></div>
+      ${f.home.map((r, i) => `<div class="itemrow home" data-home><input data-k="name" value="${esc(r.name)}" maxlength="60" aria-label="Home task ${i + 1} name"><input data-k="pts" type="number" min="0" step="1" inputmode="numeric" value="${esc(r.pts)}" aria-label="Home task ${i + 1} points"><button class="btn line sm" type="button" data-act="rmhome" data-i="${i}" aria-label="Remove home task ${i + 1}">×</button></div>`).join('')}
+      <button class="btn line sm" type="button" data-act="addhome"${f.home.length >= 10 ? ' disabled' : ''}>Add a home task</button></div>`;
+  } else scoring = nums('cap', 'Points for staying to the end', f.cap, 'Paid only to people who stay for the whole event', 'min="1"');
+  return `<div class="drawer-scrim" data-act="closedrawer"><form class="drawer" id="evform" data-stop autocomplete="off" novalidate>
+    <h2>${isNew ? 'Add event' : 'Edit event'}</h2>
+    ${isNew ? '' : `<p class="note mono">id: ${esc(d.id)} (stays the same)</p>`}
+    ${input('title', 'Title', f.title, 'maxlength="100"')}
+    ${sel('day', 'Day', doc.days.map(x => [x.key, `${x.label} (${x.date})`]), f.day)}${input('room', 'Room', f.room, 'maxlength="60"')}
+    <div class="grid2">${input('from', 'From', f.from, 'type="time"')}${input('to', 'To', f.to, 'type="time"')}</div>
+    ${sel('model', 'How it scores', Object.entries(PROGRAM_MODELS), f.model)}
+    ${scoring}
+    ${sel('kind', 'Kind (optional)', [['', 'Not set'], ['time', 'Time'], ['task', 'Task'], ['mix', 'Mix']], f.kind, 'A label the app can show')}
+    <h3 class="sub">Text shown to visitors (optional)</h3>
+    ${text('rule', 'Rule', f.rule)}${text('bonus', 'Bonus', f.bonus)}${text('bring', 'What to bring', f.bring)}${text('note', 'Note', f.note)}${text('check', 'Check', f.check)}
+    <p class="err" id="ev-err" role="alert">${esc(d.error)}</p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closedrawer" type="button">Cancel</button><button class="btn green" style="flex:1;justify-content:center" type="submit">${isNew ? 'Add event' : 'Save'}</button></div>
+    ${isNew ? '' : `<button class="btn line" type="button" data-act="delevent" data-id="${esc(d.id)}" data-title="${esc(f.title)}" style="justify-content:center">Delete event</button>`}
+  </form></div>`;
+}
+
+/** Copies what is typed in the event window into its draft (the draft is what is drawn again after any change). */
+function readEventForm() {
+  const d = state.drawer; if (!d || d.kind !== 'event' || !$('#evform')) return;
+  for (const k of ['title', 'day', 'room', 'from', 'to', 'model', 'rate', 'block', 'cap', 'maxMin', 'kind', 'rule', 'bonus', 'bring', 'note', 'check']) {
+    const el = document.getElementById('ev-' + k); if (el) d.form[k] = el.value;
+  }
+  const rows = (sel, keys) => [...document.querySelectorAll(sel)].map(r => Object.fromEntries(keys.map(k => [k, r.querySelector(`[data-k=${k}]`).value])));
+  if ($('#ev-items')) { d.form.items = rows('[data-item]', ['name', 'pts', 'min']); d.form.home = rows('[data-home]', ['name', 'pts']); }
+}
+/** Draws the event window again (after a list or the model changed) without it jumping back to the top. */
+function redrawDrawer(focusSel) {
+  const top = $('.drawer') ? $('.drawer').scrollTop : 0;
+  render();
+  const dr = $('.drawer'); if (dr) { dr.style.animation = 'none'; dr.scrollTop = top; }
+  const el = focusSel && $(focusSel); if (el) el.focus();
+}
+
+/* JSON in and out, for the program and for the zones */
+const JSON_WHAT = {
+  program: {
+    exportTitle: 'Export program', file: () => `pont-program-${localStamp(new Date().toISOString()).slice(0, 10)}.json`,
+    exportNote: 'The whole program as JSON. Copy it or download it; Import JSON takes the same text, here or on another server.',
+    importTitle: 'Import program', example: () => JSON.stringify(PontProgram.EXAMPLE, null, 2),
+    importNote: 'Paste the whole program as JSON: <code>title</code>, <code>days</code>, <code>goal</code> and <code>events</code>. It <b>replaces</b> the current program: title, days, goal and every event. If anything is wrong the server says what, and nothing changes.',
+  },
+  zones: {
+    exportTitle: 'Export zones', file: () => `pont-zones-${localStamp(new Date().toISOString()).slice(0, 10)}.json`,
+    exportNote: 'Every zone with its rules, as JSON. Copy it or download it; Import JSON takes the same text.',
+    importTitle: 'Import zones', example: () => JSON.stringify(PontProgram.ZONES_EXAMPLE, null, 2),
+    importNote: 'Paste zones as JSON: a list of <code>name</code> and <code>settings</code> (the rules of the zone, as in Export JSON). A zone whose name already exists (letter case does not matter) gets the new rules; any other name makes a new zone. Nothing is deleted. If any zone is wrong the server names it, and nothing changes.',
+  },
+};
+function jsonExportModal(m) {
+  const w = JSON_WHAT[m.what];
+  return `<div class="modal-scrim" data-act="closemodal"><div class="modal wide import" data-stop>
+    <h2>${w.exportTitle}</h2><p class="note">${w.exportNote}</p>
+    <label class="field"><span class="sr">JSON</span><textarea id="json-out" readonly spellcheck="false" class="jsonbox">${esc(m.text)}</textarea></label>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="jsoncopy">Copy</button><button class="btn green" style="flex:1;justify-content:center" data-act="jsondownload">Download</button><button class="btn" style="flex:1;justify-content:center" data-act="closemodal">Done</button></div></div></div>`;
+}
+function jsonImportModal(m) {
+  const w = JSON_WHAT[m.what], im = state.jsonImport || { text: '', error: '' };
+  return `<div class="modal-scrim"><form class="modal wide import" id="jsonimportform" data-stop autocomplete="off">
+    <h2>${w.importTitle}</h2><p class="note">${w.importNote}</p>
+    <label class="field"><span class="sr">JSON to import</span><textarea id="json-in" spellcheck="false" class="jsonbox" placeholder="Paste the JSON here">${esc(im.text)}</textarea></label>
+    <details class="example"><summary>Example</summary><pre>${esc(w.example())}</pre><button class="btn line sm" type="button" data-act="jsonexample">Use this example</button></details>
+    <p class="err" id="json-err" role="alert">${esc(im.error)}</p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button><button class="btn green" style="flex:1;justify-content:center" type="submit">Import</button></div></form></div>`;
+}
+
 function drawerView() {
-  const d = state.drawer, isNew = d.mode === 'new';
+  const d = state.drawer;
+  if (d.kind === 'event') return eventDrawer();
+  const isNew = d.mode === 'new';
   const c = isNew ? { name: '', uid: d.uid || '', balance: 0, status: 'active', photoUrl: '', hasPhoto: false } : d.card;
   const hist = isNew ? [] : (state.data.tx || []).filter(t => t.card.id === c.id).slice(0, 4);
   return `<div class="drawer-scrim" data-act="closedrawer"><div class="drawer" data-stop>
@@ -374,6 +530,8 @@ function modalView() {
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn ${m.award ? 'green' : 'red'}" style="flex:1;justify-content:center" data-act="doclosall" data-id="${esc(m.zoneId)}" data-award="${m.award ? 1 : 0}">${m.award ? 'Sign out' : 'Discard'} ${plural(here.length, 'person', 'people')}</button></div></div></div>`;
   }
   if (m.kind === 'import') return importModal();
+  if (m.kind === 'jsonexport') return jsonExportModal(m);
+  if (m.kind === 'jsonimport') return jsonImportModal(m);
   if (m.kind === 'batch') {
     const mins = [[10, '10 minutes'], [60, '1 hour'], [480, '8 hours'], [1440, '24 hours'], [4320, '3 days'], [10080, '7 days']];
     return `<div class="modal-scrim"><form class="modal wide" id="batchform" data-stop>
@@ -438,7 +596,7 @@ function modalView() {
 function render() {
   const focus = document.activeElement?.id, pos = document.activeElement?.selectionStart;
   if (!token) { root.innerHTML = loginView(); return; }
-  const pane = { report: reportPane, cards: cardsPane, terminals: terminalsPane, readers: readersPane, presence: presencePane, txns: txnsPane, staff: staffPane }[state.page]();
+  const pane = { report: reportPane, cards: cardsPane, terminals: terminalsPane, readers: readersPane, presence: presencePane, program: programPane, txns: txnsPane, staff: staffPane }[state.page]();
   root.innerHTML = shell(pane);
   if (focus === 'q') { const q = $('#q'); q.focus(); q.setSelectionRange(pos, pos); }
   loadPhotos();
@@ -606,6 +764,31 @@ root.addEventListener('submit', async e => {
       await api('PUT', `/staff/${m.id}/key`, { uid: document.getElementById('k-uid').value });
       state.modal = null; await refresh(); toast('Key saved.');
     } catch (ex) { err.textContent = ex.message; }
+  } else if (f.id === 'progsettings') {
+    readSettingsForm();
+    const err = document.getElementById('p-err'); err.textContent = '';
+    try { await saveProgram(doc => PontProgram.applySettings(doc, state.progDraft)); state.progDraft = null; render(); toast('Settings saved.'); }
+    catch (ex) { err.textContent = ex.message; }   // what was typed stays
+  } else if (f.id === 'evform') {
+    readEventForm();
+    const d = state.drawer, err = document.getElementById('ev-err'); err.textContent = ''; d.error = '';
+    try { await saveProgram(doc => PontProgram.applyEvent(doc, d.form, d.id)); state.drawer = null; render(); toast(d.id ? 'Event saved.' : 'Event added.'); }
+    catch (ex) { d.error = ex.message; err.textContent = ex.message; }
+  } else if (f.id === 'jsonimportform') {
+    const im = state.jsonImport, err = document.getElementById('json-err'); im.text = document.getElementById('json-in').value; im.error = ''; err.textContent = '';
+    try {
+      if (im.what === 'program') {
+        const r = PontProgram.parseImport(im.text);
+        if (r.error) throw new Error(r.error);
+        const saved = await api('PUT', '/program', r.doc);
+        state.data.program = saved; state.progDraft = null; state.modal = null; state.jsonImport = null; render(); toast(`Program imported: ${plural(saved.events.length, 'event')}.`);
+      } else {
+        const r = PontProgram.parseZonesImport(im.text);
+        if (r.error) throw new Error(r.error);
+        const res = await api('POST', '/zones/import', r.body);
+        state.modal = null; state.jsonImport = null; await refresh(); toast(`${res.created} added, ${res.updated} updated.`);
+      }
+    } catch (ex) { im.error = ex.message; err.textContent = ex.message; }   // the pasted text stays
   } else if (f.id === 'staffform') {
     const fd = new FormData(f), password = tempPassword();
     try {
@@ -619,6 +802,9 @@ root.addEventListener('input', e => {
   if (e.target.id === 'q') { state.q = e.target.value; refresh(); }
   if (e.target.id === 'imp-text' && state.import) { state.import.text = e.target.value; scheduleImportCheck(); }
   if (e.target.closest && e.target.closest('#rules')) refreshPreview();
+  if (e.target.id === 'json-in' && state.jsonImport) state.jsonImport.text = e.target.value;
+  if (e.target.closest && e.target.closest('#evform')) readEventForm();
+  if (e.target.closest && e.target.closest('#progsettings')) { readSettingsForm(); if (e.target.dataset.k === 'key' || e.target.dataset.k === 'label') refreshGoalDays(); }
 });
 root.addEventListener('change', async e => {
   if (e.target.closest && e.target.closest('#rules')) refreshPreview();
@@ -645,6 +831,8 @@ root.addEventListener('change', async e => {
     await guard(async () => { await api('PATCH', '/terminals/' + e.target.dataset.cancelFor, { displayCancel: e.target.checked }); await refresh(); toast(e.target.checked ? 'The display page can now cancel the last tap.' : 'The display page can no longer cancel.'); });
   }
   if (e.target.id === 'b-mode') document.getElementById('b-checkin').hidden = e.target.value !== 'presence';
+  if (e.target.id === 'ev-model') { readEventForm(); redrawDrawer(); }
+  if (e.target.closest && e.target.closest('#progsettings')) readSettingsForm();
   if (e.target.id === 'd-photo') {
     const file = e.target.files[0];
     if (file) { $('#dprev').innerHTML = `<img class="av" style="width:64px;height:64px;object-fit:cover" alt="Chosen photo" src="${URL.createObjectURL(file)}">`; }
@@ -653,7 +841,7 @@ root.addEventListener('change', async e => {
 
 root.addEventListener('click', async e => {
   const nav = e.target.closest('[data-go]');
-  if (nav) { state.page = nav.dataset.go; state.q = ''; state.data = {}; render(); return refresh(); }
+  if (nav) { state.page = nav.dataset.go; state.q = ''; state.data = {}; state.progDraft = null; render(); return refresh(); }
   const el = e.target.closest('[data-act]'); if (!el) return;
   if ((el.classList.contains('drawer-scrim') || el.classList.contains('modal-scrim')) && e.target.closest('[data-stop]')) return;
   if (el.tagName === 'A') e.preventDefault();
@@ -691,6 +879,24 @@ root.addEventListener('click', async e => {
     case 'dismiss': await guard(async () => { await api('DELETE', '/card-suggestions/' + encodeURIComponent(el.dataset.uid)); await refresh(); toast('Suggestion dismissed.'); }); break;
     case 'edit': state.drawer = { mode: 'edit', card }; render(); break;
     case 'closedrawer': state.drawer = null; render(); break;
+    case 'newevent': openEventDrawer(null); break;
+    case 'editevent': openEventDrawer(id); break;
+    case 'delevent': state.modal = { kind: 'confirm', title: `Delete “${el.dataset.title}”?`, text: 'The event is removed from the program. This cannot be undone.', button: 'Delete event', danger: true,
+      run: async () => { await saveProgram(doc => PontProgram.removeEvent(doc, id)); state.drawer = null; render(); toast('Event deleted.'); } }; render(); break;
+    case 'clearevents': state.modal = { kind: 'confirm', title: 'Remove all events?', text: `All ${state.data.program.events.length} events are removed from the program. The title, the days and the goal stay. This cannot be undone; use Export JSON first to keep a copy.`, button: 'Remove all events', danger: true,
+      run: async () => { await saveProgram(doc => PontProgram.clearEvents(doc)); render(); toast('All events removed.'); } }; render(); break;
+    case 'additem': readEventForm(); state.drawer.form.items.push({ name: '', pts: '', min: '' }); redrawDrawer('#ev-items [data-item]:last-of-type [data-k=name]'); break;
+    case 'rmitem': readEventForm(); state.drawer.form.items.splice(Number(el.dataset.i), 1); if (!state.drawer.form.items.length) state.drawer.form.items.push({ name: '', pts: '', min: '' }); redrawDrawer(); break;
+    case 'addhome': readEventForm(); state.drawer.form.home.push({ name: '', pts: '' }); redrawDrawer('#ev-home [data-home]:last-of-type [data-k=name]'); break;
+    case 'rmhome': readEventForm(); state.drawer.form.home.splice(Number(el.dataset.i), 1); redrawDrawer(); break;
+    case 'addday': readSettingsForm(); state.progDraft.days.push({ key: '', label: '', date: '', isNew: true }); render(); { const rows = document.querySelectorAll('[data-dayrow] [data-k=key]'); if (rows.length) rows[rows.length - 1].focus(); } break;
+    case 'rmday': { readSettingsForm(); const d = state.progDraft; d.days.splice(Number(el.dataset.i), 1); if (!d.days.some(x => x.key.trim().toLowerCase() === d.dayKey)) d.dayKey = (d.days[0] || {}).key || ''; render(); break; }
+    case 'progexport': state.modal = { kind: 'jsonexport', what: 'program', text: PontProgram.toJson(state.data.program) }; render(); break;
+    case 'zonesexport': state.modal = { kind: 'jsonexport', what: 'zones', text: PontProgram.zonesToJson(state.zones) }; render(); break;
+    case 'progimport': case 'zonesimport': state.jsonImport = { what: act === 'progimport' ? 'program' : 'zones', text: '', error: '' }; state.modal = { kind: 'jsonimport', what: state.jsonImport.what }; render(); { const t = document.getElementById('json-in'); if (t) t.focus(); } break;
+    case 'jsoncopy': toast((await copyText($('#json-out').value)) ? 'Copied.' : 'Could not copy. Select the text and copy it by hand.'); break;
+    case 'jsondownload': downloadFile(JSON_WHAT[state.modal.what].file(), new TextEncoder().encode(state.modal.text), 'application/json'); break;
+    case 'jsonexample': { const t = document.getElementById('json-in'); state.jsonImport.text = JSON_WHAT[state.jsonImport.what].example(); if (t) { t.value = state.jsonImport.text; t.focus(); } break; }
     case 'closemodal': state.modal = null; render(); break;
     case 'toggle': e.stopPropagation(); await guard(async () => { const c = await api('PATCH', '/cards/' + id, { status: card.status === 'blocked' ? 'active' : 'blocked' }); await refresh(); toast(c.name + (c.status === 'blocked' ? ' is now blocked.' : ' is active again.')); }); break;
     case 'adjust': await guard(async () => {
@@ -711,7 +917,7 @@ root.addEventListener('click', async e => {
         state.drawer = null; await refresh(); toast('Saved.');
       } catch (ex) { err.textContent = ex.message; }
       break; }
-    case 'refresh': await refresh(); break;
+    case 'refresh': state.progDraft = null; await refresh(); break;
     case 'copycode': toast((await copyText(el.dataset.code)) ? 'Code copied.' : 'Could not copy. Select the code and copy it by hand.'); break;
     case 'newcode2': state.modal = { kind: 'newcode2', id, name: el.dataset.name }; render(); break;
     case 'donewcode': state.modal = null; render(); await guard(async () => { await api('POST', `/terminals/${id}/display-code`); await refresh(); toast('New code made. Screens with the old one are signed out.'); }); break;
@@ -991,7 +1197,7 @@ async function retryImportPhotos() {
 /* ---------- live updates (WebSocket) ---------- */
 /* The server only says what changed ("cards", "transactions" ...). The page then asks for its own data again, but never
    while that would wipe something being typed: it waits until the person is done, then updates at once. */
-const PAGE_TOPICS = { report: ['cards', 'transactions', 'presence'], cards: ['cards', 'transactions', 'suggestions'], terminals: ['terminals', 'zones'], readers: ['terminals', 'devices', 'zones'], presence: ['presence', 'zones', 'cards'], txns: ['transactions'], staff: ['staff'] };
+const PAGE_TOPICS = { report: ['cards', 'transactions', 'presence'], cards: ['cards', 'transactions', 'suggestions'], terminals: ['terminals', 'zones'], readers: ['terminals', 'devices', 'zones'], presence: ['presence', 'zones', 'cards'], program: [], txns: ['transactions'], staff: ['staff'] };
 const ALWAYS_TOPICS = ['suggestions', 'devices'];   // their badges are in the side bar of every page
 const TIME_DEPENDENT = ['terminals', 'readers', 'presence'];   // "online", "minutes inside": they change as time passes, with no event
 let socket = null, reconnectTimer = null, reconnectDelay = 1000, hadConnection = false;

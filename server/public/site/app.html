@@ -11,7 +11,7 @@
 <body>
 <header class="top">
   <a class="brand" href="/"><span class="coin">P</span>Pont</a>
-  <nav><a href="/">Home</a><a href="/admin/">Admin</a><a href="/display">Display</a></nav>
+  <nav><a href="/">Home</a><a href="/program">Program</a><a href="/admin/">Admin</a><a href="/display">Display</a></nav>
 </header>
 <main>
 
@@ -19,12 +19,14 @@
     <div>
       <span class="badge">For card holders</span>
       <h1 id="card-title">Pont Card</h1>
-      <p class="lead">See your points, your card and everything that happened, right on your phone. No account, nothing to sign up for.</p>
+      <p class="lead">Your points, everything that happened to them, and the event program, right on your phone. No account, nothing to sign up for.</p>
       <ul class="features">
-        <li>Hold your card to the back of your phone to add it</li>
-        <li>Your photo and your points, always up to date</li>
-        <li>Every point you got or spent, day by day</li>
-        <li>Works offline too, with the last points it saw</li>
+        <li>Hold your card to the back of the phone to add it. The app keeps one card: yours</li>
+        <li>Your photo and your points, refreshed whenever you open it</li>
+        <li>Every point you got, check-in and check-out, day by day</li>
+        <li>The program: like events, drag them onto your day, choose how long you stay and see the points you could earn</li>
+        <li>Works offline, with the last points and program it saw</li>
+        <li>Only looks: it can't give, take or spend points</li>
       </ul>
       <a class="btn big" id="dl-card" href="#" aria-disabled="true" download>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 20h14"/></svg>
@@ -35,8 +37,7 @@
     <div class="art" aria-hidden="true">
       <div class="phone"><div class="screen">
         <div class="bar">Pont Card</div>
-        <div class="mini"><div class="av" style="background:#2F6F5E">A</div><div><b>Anna Kovács</b><span>04:A2:3B:1C</span></div><div class="pts">128</div></div>
-        <div class="mini"><div class="av" style="background:#B2433A">B</div><div><b>Béla Kovács</b><span>04:BB:CC:DD</span></div><div class="pts">46</div></div>
+        <div class="mini"><div class="av" style="background:#2F6F5E">A</div><div><b>Anna Kovács</b><span>Active</span></div><div class="pts">128</div></div>
         <div class="tx"><span>Today · Bar 2</span><b>+8</b></div>
         <div class="tx"><span>Today · Main hall</span><b>+12</b></div>
         <div class="tx"><span>Yesterday · Snack bar</span><b class="neg">−5</b></div>
@@ -52,14 +53,22 @@
       <div class="step"><b>Open the file</b><span>If Android asks, allow installing from your browser (Settings → Install unknown apps). It only asks once.</span></div>
       <div class="step"><b>Add your card</b><span>Open Pont Card, tap “Add a card” and hold your card to the back of the phone.</span></div>
     </div>
-    <p class="muted" style="margin-top:14px">iPhone isn't supported yet.</p>
+    <p class="muted" style="margin-top:14px">iPhone isn't supported yet. The program also opens in any browser, on a phone or a computer: <a href="/program">open the program</a>.</p>
   </section>
 
   <section class="card staff" aria-labelledby="term-title">
     <div class="txt">
       <span class="badge" style="width:max-content">For staff</span>
       <h2 id="term-title">Pont Terminal</h2>
-      <p>Turn a staff phone into a card terminal: give points, check people in and out, or run an info kiosk that shows points. It needs a pairing code from an admin.</p>
+      <p>Turn a staff phone into a card terminal. It needs a pairing code from an admin, once.</p>
+      <ul class="features">
+        <li>Give points: type an amount or tap a preset, then hold the card to the phone</li>
+        <li>Check people in and out of an area, with the time they stayed and the points it paid</li>
+        <li>Info kiosk: a tap shows the card's points, nothing is changed</li>
+        <li>Cancel the last charge, check-in or check-out with one button</li>
+        <li>A card that isn't registered can be suggested to an admin with one tap</li>
+        <li>Shows the card's photo and name at every tap, and keeps a list of recent activity</li>
+      </ul>
       <p class="meta" id="meta-terminal" style="margin:0">Android 8 or newer, with NFC.</p>
     </div>
     <a class="btn alt" id="dl-terminal" href="#" aria-disabled="true" download>
@@ -72,7 +81,13 @@
     <div class="txt">
       <span class="badge" style="width:max-content">For admins</span>
       <h2 id="admin-title">Pont Admin</h2>
-      <p>The admin site as an app, made for the phone. Scan a card to find it, to fill in its UID when adding a card, or to change its holder. You sign in with your admin account.</p>
+      <p>The admin site as an app, laid out for the phone. You sign in with an admin account.</p>
+      <ul class="features">
+        <li>Everything the admin site has: cards, terminals, readers, check-in areas, transactions, staff and the event program</li>
+        <li>Scan a card to find it, or to fill in its number when adding a card or giving someone a new one</li>
+        <li>Sign in by holding a key (a card or tag) to the phone, and stay signed in for a week</li>
+        <li>Excel exports are saved in your Downloads folder</li>
+      </ul>
       <p class="meta" id="meta-admin" style="margin:0">Android 8 or newer, with NFC.</p>
     </div>
     <a class="btn alt" id="dl-admin" href="#" aria-disabled="true" download>

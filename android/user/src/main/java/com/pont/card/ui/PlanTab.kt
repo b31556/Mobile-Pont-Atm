@@ -41,7 +41,10 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -73,13 +76,14 @@ fun PlanTab(
     queueAll: Boolean, onQueue: (Boolean) -> Unit, idx: Int, onIdx: (Int) -> Unit,
     selId: String?, onSel: (String?) -> Unit,
     onPlace: (String, Placement) -> Unit, onRemove: (String) -> Unit, onLive: (String, Placement?) -> Unit,
-    onLike: (String) -> Unit, onOpen: (String) -> Unit,
+    onLike: (String) -> Unit, onOpen: (String) -> Unit, onSkip: (String) -> Unit, onUnskipAll: () -> Unit,
 ) {
     val p = palette
     val events = state.eventsOn(day.key)
     val (d0, d1) = ProgramMath.domain(events)
     val snap = ProgramMath.snapFor(d1 - d0)
-    val queue = events.filter { it.id !in state.placed && (queueAll || it.id in state.likes) }
+    val skippedHere = events.count { it.id in state.skipped && it.id !in state.placed }
+    val queue = events.filter { it.id !in state.placed && it.id !in state.skipped && (queueAll || it.id in state.likes) }
         .sortedWith(compareBy<ProgramEvent> { it.open }.thenBy { it.s }.thenByDescending { ProgramMath.maxPts(it) })
     val card = if (queue.isEmpty()) null else queue[((idx % queue.size) + queue.size) % queue.size]
     val mine = state.placedOn(day.key)
@@ -126,17 +130,25 @@ fun PlanTab(
             }
         }
 
+        if (skippedHere > 0) {
+            Row(Modifier.padding(horizontal = 16.dp).padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("$skippedHere skipped", color = p.ink3, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text("Bring back", color = p.green, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.heightIn(min = 32.dp).clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onUnskipAll).padding(horizontal = 6.dp, vertical = 6.dp))
+            }
+        }
+
         // the card to grab
         Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().zIndex(if (dragging) 10f else 0f)) {
             if (card == null) {
                 Text(
-                    if (!queueAll) "Nothing liked is left to place. Switch to All, or like more in Pulse." else "Everything for this day is on your line.",
+                    if (!queueAll) "Nothing liked is left to place. Switch to All, or like more in Pulse." else if (skippedHere > 0) "No more cards. Bring back the skipped ones to see them again." else "Everything for this day is on your line.",
                     color = p.ink2, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(p.surface).padding(28.dp),
                 )
             } else {
                 val c = kindColors(card.kindKey)
                 Column(
-                    Modifier.fillMaxWidth()
+                    Modifier.fillMaxWidth().testTag("plancard")
                         .onGloballyPositioned { cardPos = it.positionInRoot() }
                         .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
                         .graphicsLayer {
@@ -155,8 +167,9 @@ fun PlanTab(
                                 onDrag = { change, amount -> change.consume(); drag += amount; ghost = ghostAt(card, origin + startLocal + drag) },
                                 onDragEnd = {
                                     val fit = ghost?.fit
+                                    val swipedAway = ghost == null && drag.x < -with(density) { 110.dp.toPx() } && kotlin.math.abs(drag.y) < kotlin.math.abs(drag.x)
                                     dragging = false; drag = Offset.Zero; ghost = null
-                                    if (fit != null) { onPlace(card.id, fit); onSel(card.id) }
+                                    if (fit != null) { onPlace(card.id, fit); onSel(card.id) } else if (swipedAway) onSkip(card.id)
                                 },
                                 onDragCancel = { dragging = false; drag = Offset.Zero; ghost = null },
                             )
@@ -189,7 +202,14 @@ fun PlanTab(
                     }
                     if (card.check.isNotBlank()) Text("Check: ${card.check}", color = p.amberInk, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(p.amberSoft).padding(horizontal = 8.dp, vertical = 4.dp))
-                    Text("↓ DRAG ONTO YOUR DAY", color = p.ink3, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "✕ Skip", color = p.ink2, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp,
+                            modifier = Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { onSkip(card.id) }.padding(horizontal = 10.dp, vertical = 10.dp).semantics { contentDescription = "Skip ${card.title}" },
+                        )
+                        Text("↓ DRAG ONTO YOUR DAY", color = p.ink3, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Text("‹ swipe", color = p.ink3, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp))
+                    }
                 }
             }
         }
@@ -242,7 +262,7 @@ private fun DayLine(
 ) {
     val p = palette
     val shape = RoundedCornerShape(14.dp)
-    BoxWithConstraints(modifier.fillMaxWidth().height(84.dp).clip(shape).background(p.surface).border(1.dp, p.line, shape).onGloballyPositioned { onBounds(it.boundsInRoot()) }) {
+    BoxWithConstraints(modifier.fillMaxWidth().height(84.dp).testTag("dayline").clip(shape).background(p.surface).border(1.dp, p.line, shape).onGloballyPositioned { onBounds(it.boundsInRoot()) }) {
         val w = maxWidth
         val span = (d1 - d0).coerceAtLeast(1).toFloat()
         fun x(m: Int) = w * ((m - d0) / span)

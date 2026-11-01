@@ -96,6 +96,7 @@ fun AppRoot(graph: AppGraph, reader: NfcReader) {
                 else ProgramScreen(
                     program, home.items.firstOrNull()?.card, onRefresh = graph.program::refresh,
                     onLike = graph.program::toggleLike, onPlace = graph.program::place, onRemove = graph.program::remove,
+                    onSkip = graph.program::skip, onUnskipAll = graph.program::unskipAll,
                 )
             }
             BottomBar(tab) { tab = it }

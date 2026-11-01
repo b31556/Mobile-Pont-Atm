@@ -47,7 +47,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true; buildConfig = true }
-    testOptions { unitTests.isReturnDefaultValues = true }
+    testOptions { unitTests { isReturnDefaultValues = true; isIncludeAndroidResources = true } }
 }
 
 dependencies {
@@ -67,4 +67,10 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.kotlinx.coroutines.test)
+    // The screens are tested on the JVM with Robolectric: real clicks and drags on the real composables, no phone or emulator
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.ext.junit)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

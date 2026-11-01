@@ -77,3 +77,7 @@ summary{cursor:pointer;font-weight:700}
 .sums code{display:block;margin-top:3px;word-break:break-all;font-size:12.5px;background:var(--bg);padding:8px 10px;border-radius:10px}
 footer{text-align:center;color:var(--ink-3);font-size:14px;padding-bottom:30px}
 @media (max-width:760px){.hero{grid-template-columns:1fr}.art{order:-1}.phone{transform:none;width:min(230px,60vw)}.top nav a{padding:8px 10px}}
+
+.staff .txt .features{margin:8px 0 6px;gap:8px}
+.staff .txt .features li{font-size:15px;color:var(--ink-2)}
+.staff .txt .features li::before{width:18px;height:18px;margin-top:3px}
