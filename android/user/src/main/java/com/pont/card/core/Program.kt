@@ -184,3 +184,19 @@ fun earnedOn(history: List<HistoryEntry>, date: String, zone: ZoneId = ZoneId.sy
     }
     return max(0, sum)
 }
+
+/** Points the card earned on the days of the program. This is the "earned so far": the card's whole balance would also count points from elsewhere. */
+fun earnedOnDays(history: List<HistoryEntry>, days: List<ProgramDay>, zone: ZoneId = ZoneId.systemDefault()): Int =
+    days.sumOf { earnedOn(history, it.date, zone) }
+
+/**
+ * Whether a planned stay can still add points: its day is in the future, or it is today and the stay has not ended yet.
+ * A stay that is over was either attended (its points are already in what the card earned) or missed, so it must not count again.
+ * [today] is "2026-10-22", [nowMin] the minute of the day.
+ */
+fun stillAhead(day: ProgramDay?, at: Placement, today: String, nowMin: Int): Boolean = when {
+    day == null -> false
+    day.date > today -> true
+    day.date == today -> at.end > nowMin
+    else -> false
+}

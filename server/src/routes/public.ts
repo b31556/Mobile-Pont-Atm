@@ -5,7 +5,7 @@ import { normalizeUid } from '../uid.js';
 import { cardPhoto, findCardByUid } from './cards.js';
 
 const MAX_UIDS = 10;
-const HISTORY_LINES = 50;
+const HISTORY_LINES = 200;   // enough for the program screen to add up what a card earned on each day
 const MAX_INLINE_PHOTO = 600 * 1024;   // a bigger picture is left out rather than making every refresh heavy
 
 /**

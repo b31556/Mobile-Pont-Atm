@@ -38,6 +38,8 @@ import com.pont.card.core.ProgramMath
 import com.pont.card.core.ProgramState
 import com.pont.card.core.PublicCard
 import com.pont.card.core.earnedOn
+import com.pont.card.core.earnedOnDays
+import com.pont.card.core.stillAhead
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -93,13 +95,18 @@ private fun Loaded(
     val t = pulseT ?: nowMin ?: ((d0 + 100) / 5 * 5)
     val live = tab == 1
 
-    // what the card has, and what the plan would add (a stay being dragged counts as it is dragged)
-    val plannedAll = state.placed.entries.sumOf { (id, at) -> state.event(id)?.let { ProgramMath.earn(it, if (liveStay?.first == id) liveStay!!.second.dur else at.dur) } ?: 0 }
-    val goalDay = doc.days.firstOrNull { it.key == doc.goal.dayKey }
-    val plannedGoalDay = state.placed.entries.sumOf { (id, at) ->
-        state.event(id)?.takeIf { it.day == doc.goal.dayKey }?.let { ProgramMath.earn(it, if (liveStay?.first == id) liveStay!!.second.dur else at.dur) } ?: 0
+    // What the card has earned on the days of the program, and what the plan can still add. A stay being dragged counts as it is dragged.
+    // Stays that are over do not count: attended ones are already in "earned", missed ones earn nothing.
+    fun effective(id: String, at: Placement) = if (liveStay?.first == id) liveStay!!.second else at
+    fun plannedFor(dayKey: String?): Int = state.placed.entries.sumOf { (id, at) ->
+        val e = state.event(id)
+        val eff = effective(id, at)
+        if (e == null || (dayKey != null && e.day != dayKey) || !stillAhead(doc.days.firstOrNull { it.key == e.day }, eff, today, clock.second)) 0 else ProgramMath.earn(e, eff.dur)
     }
-    val got = card?.balance ?: 0
+    val plannedAll = plannedFor(null)
+    val goalDay = doc.days.firstOrNull { it.key == doc.goal.dayKey }
+    val plannedGoalDay = plannedFor(doc.goal.dayKey)
+    val got = if (card != null) earnedOnDays(card.history, doc.days) else 0
     val gotGoalDay = if (card != null && goalDay != null) earnedOn(card.history, goalDay.date) else 0
 
     Column(Modifier.fillMaxSize()) {

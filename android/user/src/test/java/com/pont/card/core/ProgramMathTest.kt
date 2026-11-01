@@ -146,4 +146,29 @@ class ProgramMathTest {
         assertEquals(2, doc.events.size); assertEquals("time", doc.events[0].kindKey); assertEquals("mix", doc.events[1].kindKey)
         assertEquals(50, doc.goal.dayMin); assertEquals("09:00–10:00", doc.events[0].range())
     }
+
+    @Test fun earnedSoFarCountsOnlyTheDaysOfTheProgramNotTheWholeBalance() {
+        val z = ZoneId.of("UTC")
+        val days = listOf(ProgramDay("d1", "Day 1", "2026-10-21"), ProgramDay("d2", "Day 2", "2026-10-22"))
+        val h = listOf(
+            HistoryEntry("2026-10-21T10:00:00Z", "fixed", 12), HistoryEntry("2026-10-22T09:00:00Z", "presence", 30),
+            HistoryEntry("2026-10-22T09:30:00Z", "fixed", 8, stornoed = true), HistoryEntry("2026-10-22T09:31:00Z", "storno", -8),
+            HistoryEntry("2026-09-01T09:00:00Z", "fixed", 100),     // points from some other event
+        )
+        assertEquals(42, earnedOnDays(h, days, z))
+        assertEquals(0, earnedOnDays(emptyList(), days, z))
+        assertEquals(0, earnedOnDays(h, emptyList(), z))
+    }
+
+    @Test fun onlyStaysStillAheadCountAsPlanned() {
+        val past = ProgramDay("a", "A", "2026-10-21"); val today = ProgramDay("b", "B", "2026-10-22"); val future = ProgramDay("c", "C", "2026-10-23")
+        val stay = Placement(600, 60)                                       // 10:00-11:00
+        assertFalse(stillAhead(past, stay, "2026-10-22", 0))               // a day that is over
+        assertTrue(stillAhead(future, stay, "2026-10-22", 1000))           // a later day, whatever the time
+        assertTrue(stillAhead(today, stay, "2026-10-22", 540))             // not started
+        assertTrue(stillAhead(today, stay, "2026-10-22", 630))             // in progress
+        assertFalse(stillAhead(today, stay, "2026-10-22", 660))            // just ended
+        assertFalse(stillAhead(today, stay, "2026-10-22", 900))            // over
+        assertFalse(stillAhead(null, stay, "2026-10-22", 0))               // not a day of the program
+    }
 }
