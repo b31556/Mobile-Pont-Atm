@@ -378,3 +378,6 @@ tr.struck td:not(:last-child){text-decoration:line-through}
   .progtable tr.dayhead,.progtable tr.dayhead td,.progtable tr.none,.progtable tr.none td{display:block}
   .modal .jsonbox{min-height:180px}
 }
+
+img.coin{background:none;box-shadow:none;border-radius:0;display:block;width:26px;height:26px;object-fit:contain}
+.alogin .brand img.coin,.brand img.coin{flex:none}

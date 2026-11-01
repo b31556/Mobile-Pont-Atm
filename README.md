@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/pont-logo-primary-dark.svg">
+    <img src="docs/logo/pont-logo-horizontal-light.svg" alt="Pont" width="420">
+  </picture>
+</p>
+
 # Pont
 
 **Tap a card. Give points. Everyone sees.**

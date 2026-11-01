@@ -181,3 +181,9 @@ main.landing{max-width:1100px;gap:44px;padding-top:12px}
   .phones{grid-template-columns:repeat(2,1fr)}
   .top nav a{padding:8px 9px;font-size:14px}
 }
+
+/* the logo mark replaces the lettered coin */
+img.coin{background:none;box-shadow:none;border-radius:0;display:block;object-fit:contain}
+
+.top nav{flex-wrap:wrap;justify-content:flex-end}
+.top nav a{white-space:nowrap}

@@ -95,7 +95,7 @@ async function refresh() { try { await load(); } catch (e) { if (token) state.to
 /* ---------- views ---------- */
 function loginView() {
   return `<div class="login-wrap"><form class="alogin" id="login">
-    <div class="brand" style="color:var(--ink)"><span class="coin">P</span>Pont admin</div>
+    <div class="brand" style="color:var(--ink)"><img class="coin" src="/site-assets/img/logo-mark.svg" alt="" width="26" height="26">Pont admin</div>
     <h1>Sign in</h1>
     <label class="field">Email<input name="email" type="email" autocomplete="username" required></label>
     <label class="field">Password<input name="password" type="password" autocomplete="current-password" required></label>
@@ -107,7 +107,7 @@ function loginView() {
 
 function shell(inner) {
   const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id || (id === 'cards' && state.page === 'report')}">${l}${id === 'cards' && state.suggestions.length ? `<span class="badge" title="Suggested cards">${state.suggestions.length}</span>` : ''}${id === 'readers' && state.devices.some(d => d.status === 'pending') ? `<span class="badge" title="Waiting for approval">${state.devices.filter(d => d.status === 'pending').length}</span>` : ''}</button>`;
-  return `<div class="adm"><aside class="side"><div class="brand"><span class="coin">P</span>Pont admin</div>
+  return `<div class="adm"><aside class="side"><div class="brand"><img class="coin" src="/site-assets/img/logo-mark.svg" alt="" width="26" height="26">Pont admin</div>
     ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('readers', 'Readers')}${item('presence', 'Check-in')}${item('program', 'Program')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
     <div class="me"><div class="live" id="live" data-state="${liveState}" title="Pages update by themselves when something changes">${LIVE_LABELS[liveState] || ''}</div><button data-act="signout">Sign out</button></div></aside>
     <div class="pane">${inner}</div></div>${state.drawer ? drawerView() : ''}${state.modal ? modalView() : ''}

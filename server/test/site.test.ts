@@ -161,3 +161,16 @@ describe('the app page says what Pont Card really does', () => {
     for (const k of ["['card', 'dl-card'", "['terminal', 'dl-terminal'", "['admin', 'dl-admin'"]) expect(js).toContain(k);
   });
 });
+
+describe('the logo', () => {
+  it('is the icon of every page and the mark in the headers', async () => {
+    const { app } = await make();
+    for (const url of ['/', '/app', '/program', '/display', '/admin/']) {
+      expect((await get(app, url)).body, url).toContain('rel="icon" type="image/svg+xml" href="/site-assets/img/logo-mark.svg"');
+    }
+    for (const url of ['/', '/app']) expect((await get(app, url)).body, url).toContain('class="coin" src="/site-assets/img/logo-mark.svg"');
+    const svg = await get(app, '/site-assets/img/logo-mark.svg');
+    expect(svg.statusCode).toBe(200); expect(svg.body).toContain('<svg'); expect(svg.body).toContain('Pont');
+  });
+});
+
