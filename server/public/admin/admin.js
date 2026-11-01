@@ -271,7 +271,7 @@ function readersPane() {
 function terminalsPane() {
   const list = (state.data.terminals || []).filter(t => t.kind !== 'device');
   return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. In ATM mode it gives points for an amount. In Check-in mode it signs people in and out: pick its zone (which decides the rules) and whether it signs in, signs out, or toggles. A phone follows a mode change within about 30 seconds.</p></div><span class="sp"></span>
-    <button class="btn green" data-act="newterm">Pair a phone</button></div>
+    <button class="btn line" data-act="newbatch">Pair many phones</button><button class="btn green" data-act="newterm">Pair a phone</button></div>
     <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Mode</th><th>Check-in point</th><th>Phone</th><th>App</th><th>Given today</th><th title="Most points this phone can give in any hour. Empty means no limit.">Hourly limit</th><th></th></tr></thead><tbody>
     ${list.length ? list.map(t => `<tr><td><b>${esc(t.name)}</b><div style="font-size:12px;color:var(--ink-3)">${esc(t.place)}</div></td>
       <td>${t.online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline</span>'}<div style="font-size:12px;color:var(--ink-3)">${t.lastSeen ? esc(when(t.lastSeen)) : 'Never seen'}</div></td>
@@ -344,6 +344,30 @@ function modalView() {
     <label class="field" style="text-align:left">Terminal name<input name="name" required placeholder="Bar 2"></label>
     <label class="field" style="text-align:left">Place<input name="place" placeholder="Main hall"></label>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button><button class="btn green" style="flex:1;justify-content:center">Create and get code</button></div></form></div>`;
+  if (m.kind === 'batch') {
+    const mins = [[10, '10 minutes'], [60, '1 hour'], [480, '8 hours'], [1440, '24 hours'], [4320, '3 days'], [10080, '7 days']];
+    return `<div class="modal-scrim"><form class="modal wide" id="batchform" data-stop>
+    <h2>Pair many phones</h2>
+    <p class="note">One phone per line: the <b>place</b> first, then the <b>terminal name</b>. The first word is the place. For a place of several words, put a <code>|</code> between the two, like <code>Main hall | Bar 2</code> (two spreadsheet columns pasted in work too).</p>
+    <label class="field" style="text-align:left">Phones<textarea name="text" id="b-text" required spellcheck="false" placeholder="Floorball Terminal 1&#10;Floorball Terminal 2&#10;Checkin Anna's Terminal"></textarea></label>
+    <div class="grid2" style="text-align:left">
+      <label class="field">Mode<select name="mode" id="b-mode"><option value="atm">ATM (gives points)</option><option value="presence">Check-in / check-out</option></select></label>
+      <label class="field">Pairing codes work for<select name="minutes">${mins.map(([v, l]) => `<option value="${v}"${v === 60 ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+    </div>
+    <div class="grid2" id="b-checkin" hidden style="text-align:left">
+      <label class="field">Zone<select name="zoneId">${state.zones.map(z => `<option value="${esc(z.id)}">${esc(z.name)}</option>`).join('')}</select></label>
+      <label class="field">Point type<select name="direction"><option value="toggle">Toggle (in / out)</option><option value="in">Sign in only</option><option value="out">Sign out only</option></select></label>
+    </div>
+    <p class="err" id="b-err" role="alert"></p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button><button class="btn green" style="flex:1;justify-content:center">Create and get codes</button></div></form></div>`;
+  }
+  if (m.kind === 'batchcodes') return `<div class="modal-scrim"><div class="modal wide" data-stop>
+    <h2>${m.rows.length} phone${m.rows.length === 1 ? '' : 's'} ready to pair</h2>
+    <p class="note">On each phone: open the app, choose “Pair this phone” and enter its code. Each code works once and stops working at <b>${esc(when(m.expiresAt))}</b>. The codes are shown only now, so download or copy them before you close this. Anyone who has a code can pair a phone as that terminal, so share the table privately.</p>
+    <div class="tw"><table><thead><tr><th>Place</th><th>Terminal</th><th>Mode</th><th>Pairing code</th></tr></thead><tbody>
+      ${m.rows.map(r => `<tr><td>${esc(r.place)}</td><td>${esc(r.name)}</td><td>${esc(m.modeLabel)}</td><td class="batchcode">${esc(r.pairingCode)}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="batchcopy">Copy table</button><button class="btn green" style="flex:1;justify-content:center" data-act="batchxlsx">Download Excel</button><button class="btn" style="flex:1;justify-content:center" data-act="closemodal">Done</button></div></div></div>`;
   if (m.kind === 'newzone') return `<div class="modal-scrim" data-act="closemodal"><form class="modal" id="zoneform" data-stop>
     <h2>Add a zone</h2><p style="color:var(--ink-2)">It starts with a copy of the rules of ${esc(m.from)}. Change them after.</p>
     <label class="field" style="text-align:left">Zone name<input name="name" required maxlength="60" placeholder="Workshop"></label>
@@ -383,6 +407,17 @@ function render() {
   if (state.page === 'presence') refreshPreview();
 }
 
+/* ---------- group pairing export ---------- */
+const localStamp = iso => { const d = new Date(iso), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+const batchTable = m => [['Place', 'Terminal', 'Mode', 'Pairing code', 'Valid until'], ...m.rows.map(r => [r.place, r.name, m.modeLabel, r.pairingCode, localStamp(m.expiresAt)])];
+function downloadFile(name, bytes, type) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+/** Pasted into a spreadsheet, a cell starting with = + - @ would run as a formula; a leading ' keeps it text. */
+const tsvCell = v => (/^[=+\-@]/.test(v) ? "'" + v : v).replace(/[\t\r\n]+/g, ' ');
+
 /* ---------- events ---------- */
 const tempPassword = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
 
@@ -421,6 +456,18 @@ root.addEventListener('submit', async e => {
       const r = await api('POST', '/terminals', { name: fd.get('name'), place: fd.get('place') });
       state.modal = { kind: 'code', name: r.terminal.name, code: r.pairingCode }; await refresh();
     });
+  } else if (f.id === 'batchform') {
+    const fd = new FormData(f), err = document.getElementById('b-err'); err.textContent = '';
+    const mode = fd.get('mode');
+    const body = { text: fd.get('text'), mode, expiresInMinutes: Number(fd.get('minutes')) };
+    if (mode === 'presence') { body.zoneId = fd.get('zoneId'); body.direction = fd.get('direction'); }
+    try {
+      const r = await api('POST', '/terminals/batch', body);
+      const zone = state.zones.find(z => z.id === body.zoneId)?.name;
+      const dir = { toggle: 'sign in or out', in: 'sign in only', out: 'sign out only' }[body.direction];
+      state.modal = { kind: 'batchcodes', rows: r.terminals, expiresAt: r.expiresAt, modeLabel: mode === 'atm' ? 'ATM' : `Check-in (${dir}${zone ? ', ' + zone : ''})` };
+      await refresh();
+    } catch (ex) { err.textContent = ex.message; }
   } else if (f.id === 'staffform') {
     const fd = new FormData(f), password = tempPassword();
     try {
@@ -453,6 +500,7 @@ root.addEventListener('change', async e => {
   if (e.target.dataset && e.target.dataset.modeFor) {
     await guard(async () => { const t = await api('PATCH', '/terminals/' + e.target.dataset.modeFor, { mode: e.target.value }); await refresh(); toast(t.name + ' is now in ' + (t.mode === 'presence' ? 'Check-in' : 'ATM') + ' mode.'); });
   }
+  if (e.target.id === 'b-mode') document.getElementById('b-checkin').hidden = e.target.value !== 'presence';
   if (e.target.id === 'd-photo') {
     const file = e.target.files[0];
     if (file) { $('#dprev').innerHTML = `<img class="av" style="width:64px;height:64px;object-fit:cover" alt="Chosen photo" src="${URL.createObjectURL(file)}">`; }
@@ -510,6 +558,12 @@ root.addEventListener('click', async e => {
       await refresh(); toast(el.dataset.award === '1' ? 'Signed out' + (r.points ? ' · +' + r.points + ' points.' : ' · no points earned.') : 'Visit discarded.');
     }); break;
     case 'newterm': state.modal = { kind: 'newterm' }; render(); break;
+    case 'newbatch': state.modal = { kind: 'batch' }; render(); break;
+    case 'batchxlsx': {
+      const bytes = PontXlsx.build('Pairing codes', batchTable(state.modal), [14, 26, 36, 14, 18]);
+      downloadFile(`pont-pairing-codes-${localStamp(new Date().toISOString()).slice(0, 10)}.xlsx`, bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      break; }
+    case 'batchcopy': toast((await copyText(batchTable(state.modal).map(r => r.map(tsvCell).join('\t')).join('\n'))) ? 'Table copied. Paste it into Excel or Sheets.' : 'Could not copy. Use Download Excel instead.'); break;
     case 'newcode': await guard(async () => { const t = state.data.terminals.find(x => x.id === id); const r = await api('POST', `/terminals/${id}/pairing-code`); state.modal = { kind: 'code', name: t.name, code: r.pairingCode }; render(); }); break;
     case 'revoke': state.modal = { kind: 'revoke', id, name: el.dataset.name }; render(); break;
     case 'dorevoke': await guard(async () => { await api('DELETE', '/terminals/' + id); state.modal = null; await refresh(); toast('Terminal revoked.'); }); break;

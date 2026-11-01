@@ -6,6 +6,7 @@ import { defaultZone, getZone } from '../presence.js';
 import { validateFixed } from '../fixed.js';
 import { fixedOf } from './fixed.js';
 import { displayCodeFor, renewDisplayCode } from './display.js';
+import { MAX_EXPIRY_MINUTES, parseTerminalLines } from '../batch.js';
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
@@ -13,12 +14,12 @@ const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 export function registerTerminals(app: FastifyInstance) {
   const db = app.db;
 
-  function newCode(terminalId: string): string {
+  function newCode(terminalId: string, ttlMs = CODE_TTL_MS): string {
     db.prepare('delete from pairing_codes where terminal_id=? or expires_at < ?').run(terminalId, Date.now());
     for (;;) {
       const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
       if (db.prepare('select 1 from pairing_codes where code=?').get(code)) continue;
-      db.prepare('insert into pairing_codes(code,terminal_id,expires_at,used) values(?,?,?,0)').run(code, terminalId, Date.now() + CODE_TTL_MS);
+      db.prepare('insert into pairing_codes(code,terminal_id,expires_at,used) values(?,?,?,0)').run(code, terminalId, Date.now() + ttlMs);
       return code;
     }
   }
@@ -46,6 +47,38 @@ export function registerTerminals(app: FastifyInstance) {
     const id = randomUUID();
     db.prepare('insert into terminals(id,name,place,active) values(?,?,?,1)').run(id, b.name.trim(), b.place ?? '');
     return reply.code(201).send({ terminal: { id, name: b.name.trim(), place: b.place ?? '' }, pairingCode: newCode(id) });
+  });
+
+  /**
+   * Group pairing: makes many phones at once from a pasted list ("<Place> <Terminal name>" per line), each with its own
+   * pairing code that expires after [expiresInMinutes]. All or nothing: a bad line or setting creates no terminal at all.
+   */
+  app.post('/terminals/batch', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const b = (req.body ?? {}) as { text?: unknown; mode?: unknown; zoneId?: unknown; direction?: unknown; expiresInMinutes?: unknown };
+    const parsed = parseTerminalLines(b.text);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    if (b.mode !== 'atm' && b.mode !== 'presence') return reply.code(400).send({ error: 'mode must be atm or presence' });
+    const minutes = b.expiresInMinutes;
+    if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > MAX_EXPIRY_MINUTES) {
+      return reply.code(400).send({ error: `The codes must last from 1 minute to ${MAX_EXPIRY_MINUTES / 60 / 24} days` });
+    }
+    let zoneId: string | null = null, direction = 'toggle';
+    if (b.mode === 'presence') {
+      if (b.direction !== undefined && !['in', 'out', 'toggle'].includes(b.direction as string)) return reply.code(400).send({ error: 'direction must be in, out or toggle' });
+      direction = (b.direction as string | undefined) ?? 'toggle';
+      if (b.zoneId !== undefined && typeof b.zoneId !== 'string') return reply.code(400).send({ error: 'Zone not found' });
+      const zone = b.zoneId === undefined ? defaultZone(db) : getZone(db, b.zoneId as string);
+      if (!zone) return reply.code(404).send({ error: 'Zone not found' });
+      zoneId = zone.id;
+    }
+    const ttlMs = minutes * 60 * 1000;
+    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+    const terminals = db.transaction(() => parsed.rows.map(r => {
+      const id = randomUUID();
+      db.prepare('insert into terminals(id,name,place,active,mode,zone_id,direction) values(?,?,?,1,?,?,?)').run(id, r.name, r.place, b.mode, zoneId, direction);
+      return { id, place: r.place, name: r.name, mode: b.mode as string, pairingCode: newCode(id, ttlMs), expiresAt };
+    }))();
+    return reply.code(201).send({ expiresAt, terminals });
   });
 
   app.post('/terminals/:id/pairing-code', { preHandler: app.requireAdmin }, async (req, reply) => {

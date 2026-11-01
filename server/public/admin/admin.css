@@ -151,3 +151,12 @@ body{min-height:100vh}
 .displaylink .hint{flex-basis:100%;margin:0}
 a.btn{text-decoration:none}
 .codebox{font:800 22px ui-monospace,Menlo,monospace;letter-spacing:.2em;background:#fff;border:2px solid var(--ink);border-radius:10px;padding:2px 12px;color:var(--ink)}
+
+/* group pairing */
+.field textarea{border-radius:12px;border:1.5px solid var(--line);background:#fff;padding:12px 14px;font:500 15px/1.5 ui-monospace,Menlo,monospace;color:var(--ink);resize:vertical;min-height:140px}
+.modal.wide{width:min(780px,94vw);max-height:92vh;overflow:auto}
+.modal.wide .tw{text-align:left}
+.modal.wide table{min-width:0}
+.modal .note{font-size:13px;color:var(--ink-2);margin:0;text-align:left}
+td.batchcode{font:800 20px ui-monospace,Menlo,monospace;letter-spacing:.14em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.grid2[hidden]{display:none}
