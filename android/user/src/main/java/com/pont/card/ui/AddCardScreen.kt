@@ -38,7 +38,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pont.card.core.AddState
-import com.pont.card.core.UidStore
 import com.pont.card.nfc.NfcStatus
 
 /** What the add screen says for a state: a title and a line under it. */
@@ -52,7 +51,7 @@ fun addCopy(state: AddState, nfc: NfcStatus): AddCopy = when {
         is AddState.Checking -> AddCopy("Looking up your card…", "")
         is AddState.Added -> AddCopy("Card added", state.name)
         AddState.NotRegistered -> AddCopy("This card isn't registered", "Ask the event staff to add it. Hold another card to try again.")
-        AddState.Full -> AddCopy("That's the most cards", "You can keep up to ${UidStore.MAX_CARDS} cards on this phone. Remove one first.")
+        AddState.Full -> AddCopy("This phone has a card already", "The app keeps one card, yours. To use a different one, open your card and choose Remove first.")
         AddState.Unsupported -> AddCopy("This card can't be read", "The app can't use this kind of card. Try another one.")
         is AddState.Error -> AddCopy(if (state.offline) "No connection" else "Couldn't add the card", state.message + " Hold the card to the phone to try again.")
     }

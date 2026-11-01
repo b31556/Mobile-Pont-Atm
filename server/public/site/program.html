@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#12202B">
+<title>Program</title>
+<style>
+/* Layout concept: the Pont Card program screen with two tabs. Pulse shows what is open at a chosen moment. Plan puts one event card
+   above one line that is your whole day: drag the card onto the line, drag its edges to choose how long you stay, and the points follow. */
+:root {
+  --page:#EFE9DC; --bg:#FBF7EF; --surface:#FFFFFF; --ink:#12202B; --ink2:#4A5B68; --ink3:#6F7F8B; --line:#E8E1D3;
+  --green:#0F7F37; --green-soft:#DDF4E5; --on-green:#FFFFFF;
+  --red:#C0342C; --red-soft:#FBE4E2;
+  --amber:#F5B31F; --amber-soft:#FFF1CF; --amber-ink:#6B4A00;
+  --mix:#2B4A63; --mix-soft:#E3ECF3;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page:#0A1319; --bg:#0F1A22; --surface:#182630; --ink:#F2F5F7; --ink2:#B6C3CC; --ink3:#8A9AA6; --line:#263541;
+  --green:#5BD58A; --green-soft:#16352A; --on-green:#0B2A17; --red:#FF8A82; --red-soft:#3B2024;
+  --amber-soft:#3A2F14; --amber-ink:#F5D27A; --mix:#9FC1DD; --mix-soft:#1F3342; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --page:#0A1319; --bg:#0F1A22; --surface:#182630; --ink:#F2F5F7; --ink2:#B6C3CC; --ink3:#8A9AA6; --line:#263541;
+  --green:#5BD58A; --green-soft:#16352A; --on-green:#0B2A17; --red:#FF8A82; --red-soft:#3B2024;
+  --amber-soft:#3A2F14; --amber-ink:#F5D27A; --mix:#9FC1DD; --mix-soft:#1F3342; color-scheme: dark; }
+
+*{box-sizing:border-box;margin:0}
+body{background:var(--page);color:var(--ink);font:15px/1.4 var(--font);padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+.wrap{max-width:980px;margin-inline:auto;display:grid;gap:18px}
+h1{font-size:26px;font-weight:800;letter-spacing:-.02em;text-wrap:balance}
+.lede{color:var(--ink2);max-width:62ch}
+.stage{display:grid;grid-template-columns:minmax(0,390px) minmax(0,1fr);gap:28px;align-items:start}
+@media (max-width:760px){.stage{grid-template-columns:minmax(0,1fr)}}
+.notes{display:grid;gap:14px;align-content:start;min-width:0;max-width:60ch}
+.notes h2{font-size:20px;font-weight:800}
+.notes p,.notes li{color:var(--ink2)}
+.notes ol,.notes ul{padding-left:20px;display:grid;gap:6px}
+.notes h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:4px}
+.fact{background:var(--surface);border-radius:14px;padding:14px 16px;box-shadow:0 0 0 1px var(--line);color:var(--ink2)}
+.fact b{color:var(--ink)}
+.linkish{color:var(--ink2);text-decoration:underline;font-size:13px;justify-self:start}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--ink2)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:4px;margin-right:6px;vertical-align:-1px}
+
+/* the phone */
+.phone{width:100%;max-width:390px;height:800px;background:var(--bg);border-radius:34px;box-shadow:0 0 0 8px var(--ink),0 24px 50px -20px #0007;overflow:hidden;position:relative;display:flex;flex-direction:column;margin-inline:auto}
+.appbar{padding:16px 16px 6px;display:grid;gap:8px;background:var(--bg)}
+.apptop{display:flex;align-items:center;gap:10px}
+.apptop h2{font-size:22px;font-weight:800;letter-spacing:-.02em;flex:1}
+.status{background:var(--surface);border-radius:16px;padding:9px 12px;box-shadow:0 0 0 1px var(--line);display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.status .row{display:grid;gap:4px}
+.status .rt{display:flex;justify-content:space-between;align-items:baseline;gap:6px;font-size:11px;color:var(--ink2);font-weight:700}
+.status .nums{font-size:13px;font-weight:800;color:var(--ink);display:flex;justify-content:space-between;align-items:baseline;gap:4px}
+.status .nums small{font-size:11px;color:var(--ink3);font-weight:700}
+.status .rt b{color:var(--ink);font-size:13px}
+.status em{font-style:normal;color:var(--green);font-weight:800;font-size:12px}
+.status em.no{color:var(--red)}
+.meter{position:relative;height:9px;border-radius:5px;background:var(--line);overflow:hidden;display:flex}
+.meter i{display:block;height:100%}
+.meter .got{background:var(--ink)}.meter .plan{background:var(--green)}
+.meter .goalmark{position:absolute;top:0;bottom:0;width:2px;background:var(--amber)}
+.subbar{display:flex;gap:8px;align-items:center}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--surface);border-radius:999px;padding:3px;box-shadow:0 0 0 1px var(--line);flex:1;min-width:0}
+.tabs button{padding:7px;border-radius:999px;font-weight:800;color:var(--ink2);font-size:14px}
+.tabs button[aria-selected=true]{background:var(--ink);color:var(--bg)}
+.days{flex:none;display:flex;gap:3px;background:var(--surface);border-radius:999px;padding:3px;box-shadow:0 0 0 1px var(--line)}
+.days button{padding:7px 11px;border-radius:999px;font-weight:700;color:var(--ink2);font-size:13px}
+.days button[aria-pressed=true]{background:var(--amber);color:#12202B}
+.view{flex:1;min-height:0;overflow:auto;position:relative;padding:4px 0 14px}
+.tabbar{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);background:var(--surface);padding:8px 8px 14px}
+.tabbar span{text-align:center;font-size:12px;font-weight:600;color:var(--ink3);display:grid;gap:2px;justify-items:center}
+.tabbar span[aria-current=true]{color:var(--ink)}
+.tabbar svg{width:22px;height:22px}
+
+/* kinds of points */
+.k-time{--kc:var(--green);--kb:var(--green-soft)}
+.k-task{--kc:var(--amber-ink);--kb:var(--amber-soft)}
+.k-mix{--kc:var(--mix);--kb:var(--mix-soft)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--kb);color:var(--kc)}
+.heart{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;color:var(--ink3);background:var(--surface);box-shadow:0 0 0 1.5px var(--line) inset}
+.heart svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2.2}
+.heart[aria-pressed=true]{color:var(--red);background:var(--red-soft);box-shadow:none}
+.heart[aria-pressed=true] svg{fill:currentColor}
+
+/* ---------- plan: card above, one line below ---------- */
+.qrow{display:flex;align-items:center;gap:6px;padding:0 16px 6px}
+.qrow .seg{display:flex;gap:3px;background:var(--surface);border-radius:999px;padding:3px;box-shadow:0 0 0 1px var(--line)}
+.qrow .seg button{padding:5px 11px;border-radius:999px;font-size:12px;font-weight:800;color:var(--ink2)}
+.qrow .seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.qrow .cnt{margin-left:auto;font-size:12px;font-weight:700;color:var(--ink3)}
+.qrow .nav{width:32px;height:32px;border-radius:50%;background:var(--surface);box-shadow:0 0 0 1.5px var(--line) inset;display:grid;place-items:center;font-weight:800;font-size:16px}
+.cardzone{padding:0 16px;position:relative;z-index:3}
+.pcard{background:var(--surface);border-radius:22px;padding:11px 14px 8px;box-shadow:0 0 0 1px var(--line),0 12px 24px -16px #0006;display:grid;gap:5px;touch-action:none;user-select:none;cursor:grab;position:relative}
+.pcard.drag{cursor:grabbing;box-shadow:0 0 0 2px var(--kc),0 22px 34px -12px #0008;z-index:9}
+.pcard h3{font-size:19px;line-height:1.1;font-weight:800;letter-spacing:-.02em;text-wrap:balance}
+.pcard .meta{font-size:13px;font-weight:600;color:var(--ink2)}
+.pcard .head{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.pcard .worth{display:flex;align-items:baseline;gap:6px}
+.pcard .worth b{font-size:34px;line-height:.95;font-weight:800;letter-spacing:-.04em}
+.pcard .worth span{font-size:12px;font-weight:700;color:var(--ink2)}
+.pcard .rule{font-size:13px;color:var(--ink2)}
+.pcard .inside{display:flex;gap:4px;flex-wrap:wrap}
+.pcard .inside span{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--bg);color:var(--ink2)}
+.pcard .grab{display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink3);letter-spacing:.04em}
+.pcard .grab svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.6;animation:nudge 1.6s ease-in-out infinite}
+@keyframes nudge{0%,100%{transform:translateY(-2px)}50%{transform:translateY(3px)}}
+.pcard .check{font-size:12px;font-weight:700;color:var(--amber-ink);background:var(--amber-soft);border-radius:10px;padding:4px 8px}
+.emptycard{background:var(--surface);border-radius:22px;padding:28px 16px;text-align:center;color:var(--ink2);box-shadow:0 0 0 1px var(--line)}
+
+.dayline{margin:8px 0 0;padding:0 16px}
+.dl-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.dl-top b{font-size:13px;font-weight:800}
+.dl-top span{font-size:12px;color:var(--ink2);font-weight:600}
+.track{position:relative;height:84px;border-radius:14px;background:var(--surface);box-shadow:0 0 0 1px var(--line);overflow:hidden;touch-action:none}
+.track .tk{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
+.track .tl{position:absolute;z-index:3;top:3px;font-size:10px;font-weight:700;color:var(--ink3);transform:translateX(3px)}
+.band{position:absolute;top:0;bottom:0;background:var(--kb);border-inline:2px solid var(--kc);opacity:.95}
+.band span{position:absolute;left:5px;bottom:4px;font-size:10px;font-weight:800;color:var(--kc);white-space:nowrap}
+.dim{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(135deg,transparent 0 5px,var(--line) 5px 6px);opacity:.8}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--red);z-index:2}
+.pb{position:absolute;top:20px;height:46px;border-radius:11px;background:var(--surface);color:var(--kc);box-shadow:0 0 0 2px var(--kc) inset;display:flex;align-items:center;padding:0 12px;gap:5px;font-size:11px;font-weight:800;overflow:hidden;white-space:nowrap;touch-action:none;cursor:grab;z-index:2}
+.pb::before{content:"";position:absolute;inset:0;background:var(--kb);opacity:.9;z-index:-1}
+.pb .tt{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.pb .pp{font-size:13px;flex:none}
+.pb.narrow .tt{display:none}
+.pb.narrow{padding:0 9px;justify-content:center}
+.pb.sel{box-shadow:0 0 0 3px var(--ink) inset}
+.pb .h{position:absolute;top:0;bottom:0;width:13px;display:grid;place-items:center;cursor:ew-resize;touch-action:none}
+.pb .h::after{content:"";width:3px;height:18px;border-radius:2px;background:var(--kc);opacity:.7}
+.pb .h.l{left:0}.pb .h.r{right:0}
+.pb.fixed .h{display:none}
+.ghost{position:absolute;top:20px;height:46px;border-radius:11px;border:2px dashed var(--kc);background:var(--kb);color:var(--kc);display:none;align-items:center;justify-content:center;font-weight:800;font-size:13px;z-index:4;pointer-events:none}
+.ghost.bad{border-color:var(--red);background:var(--red-soft);color:var(--red)}
+.dl-sum{margin-top:6px;font-size:12px;color:var(--ink2);font-weight:600}
+.panel{margin:10px 16px 0;background:var(--surface);border-radius:16px;padding:11px 12px;box-shadow:0 0 0 1px var(--line);display:grid;gap:8px}
+.panel .ph{display:flex;align-items:center;gap:8px}
+.panel .ph b{font-size:15px;flex:1;line-height:1.15}
+.panel .big{font-size:24px;font-weight:800;letter-spacing:-.02em}
+.panel .sub{font-size:13px;color:var(--ink2)}
+.panel .hint{font-size:12px;color:var(--green);font-weight:700}
+.panel .btns{display:flex;gap:6px;align-items:center}
+.panel .btns button{height:34px;padding:0 12px;border-radius:10px;font-weight:800;font-size:13px;box-shadow:0 0 0 1.5px var(--line) inset;background:var(--surface)}
+.panel .btns .rm{margin-left:auto;color:var(--red)}
+.empty{padding:26px 16px;text-align:center;color:var(--ink2)}
+.list{margin:12px 16px 0;display:grid;gap:6px}
+.list .it{display:flex;align-items:center;gap:10px;background:var(--surface);border-radius:12px;padding:8px 10px;box-shadow:0 0 0 1px var(--line);text-align:left;width:100%}
+.list .it b{font-size:13px;flex:1;line-height:1.15}
+.list .it span{font-size:12px;color:var(--ink2);font-weight:600}
+.list .it .pp{font-weight:800;color:var(--kc);font-size:14px}
+.group{padding:10px 16px 4px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);font-weight:700}
+
+/* ---------- pulse ---------- */
+.heatbox{margin:4px 16px 0;background:var(--surface);border-radius:18px;padding:12px 12px 8px;box-shadow:0 0 0 1px var(--line);touch-action:none;user-select:none}
+.heat{position:relative;display:flex;align-items:flex-end;gap:3px;height:70px}
+.heat i{flex:1;border-radius:5px 5px 2px 2px;background:var(--line)}
+.heat i[data-in]{background:var(--green)}
+.heat .cur{position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;background:var(--ink);pointer-events:none}
+.heat .cur::after{content:"";position:absolute;left:-7px;top:-5px;width:17px;height:17px;border-radius:50%;background:var(--ink);border:3px solid var(--surface);box-sizing:border-box}
+.heatlab{display:flex;justify-content:space-between;font-size:11px;color:var(--ink3);margin-top:6px;font-weight:600}
+.nowtime{display:flex;align-items:baseline;gap:8px;padding:10px 16px 6px}
+.nowtime b{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.nowtime span{color:var(--ink2);font-size:13px}
+.ecard{margin:0 16px 8px;background:var(--surface);border-radius:16px;padding:12px;box-shadow:0 0 0 1px var(--line);display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;text-align:left;width:calc(100% - 32px)}
+.ecard .tt{font-weight:800;font-size:15px;line-height:1.2}
+.ecard .sub{color:var(--ink2);font-size:13px}
+.ecard .pts{font-size:22px;font-weight:800;text-align:right;line-height:1}
+.ecard .pts small{display:block;font-size:11px;font-weight:600;color:var(--ink3)}
+.span{grid-column:1/-1;display:flex;align-items:center;gap:8px}
+.mini{position:relative;flex:1;height:6px;border-radius:3px;background:var(--line)}
+.mini i{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--kc);opacity:.55}
+.mini u{position:absolute;top:-3px;width:3px;height:12px;border-radius:2px;background:var(--ink)}
+.ends{font-size:12px;font-weight:700;color:var(--ink2)}.ends.soon{color:var(--red)}
+.inplan{font-size:11px;font-weight:800;color:var(--green);background:var(--green-soft);border-radius:999px;padding:2px 8px}
+
+/* ---------- sheet ---------- */
+.scrim{position:absolute;inset:0;background:#0009;z-index:20;display:flex;align-items:flex-end}
+.sheet{width:100%;background:var(--surface);border-radius:26px 26px 0 0;padding:8px 18px 22px;display:grid;gap:11px;max-height:90%;overflow:auto;animation:up .18s ease-out}
+@keyframes up{from{transform:translateY(30px);opacity:.5}}
+.sgrab{width:42px;height:5px;border-radius:3px;background:var(--line);justify-self:center;margin-bottom:4px}
+.sheet h3{font-size:22px;line-height:1.1;font-weight:800;letter-spacing:-.02em;text-wrap:balance}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.facts div{background:var(--bg);border-radius:12px;padding:8px 10px}
+.facts small{display:block;font-size:11px;color:var(--ink3);font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.facts b{font-size:15px}
+.sheet .rule{color:var(--ink2);font-size:14px}
+.sheet .items{display:grid;gap:4px;font-size:13px;color:var(--ink2)}
+.sheet .items div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding:3px 0}
+.sheet .items b{color:var(--ink)}
+.cta{display:flex;gap:8px}
+.cta button{flex:1;height:46px;border-radius:14px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 0 0 1.5px var(--line) inset;font-size:14px}
+.cta .go{background:var(--green);color:var(--on-green);box-shadow:none;flex:1.6}
+.cta .go[disabled]{opacity:.5}
+.toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:12px;font-weight:700;font-size:13px;z-index:30;white-space:nowrap;pointer-events:none}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.cardbox{display:grid;gap:8px}
+.cardrow{display:flex;gap:8px;flex-wrap:wrap}
+.cardrow input{flex:1;min-width:140px;height:42px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg);padding:0 12px;font:inherit;color:var(--ink)}
+.cardrow .go{height:42px;padding:0 16px;border-radius:12px;background:var(--green);color:var(--on-green);font-weight:800}
+.bad{color:var(--red);font-weight:700}
+.topnav{max-width:980px;margin:0 auto 6px}
+.topnav a{color:var(--ink2);font-weight:700;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="topnav"><a href="/">← Pont</a></div>
+<div class="wrap">
+  <header>
+    <h1 id="title">Program</h1>
+    <p class="lede">Plan your days: drag an event onto your line, choose how long you stay, and see the points add up.</p>
+  </header>
+  <section class="stage">
+    <div class="phone" id="phone">
+      <div class="appbar">
+        <div class="status" id="status"></div>
+        <div class="subbar"><div class="tabs" id="tabs" role="tablist"></div><div class="days" id="days"></div></div>
+      </div>
+      <div class="view" id="view"></div>
+      <div class="tabbar">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h4"/></svg>Card</span>
+        <span aria-current="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Program</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>History</span>
+      </div>
+    </div>
+    <aside class="notes" id="notes"></aside>
+  </section>
+</div>
+
+<script>
+'use strict';
+/* ---------- the program, from the 21-22 October sheet (typed from a scan; rows marked "check" were torn or unclear) ---------- */
+const GOAL = { total: 0, dayKey: '', dayMin: 0 };   // filled from the server's program
+const DAYS = [];                                       // { key, label, date }
+const E = [];                                          // the events, with times as minutes
+const byId = {};
+let PROGRAM = { title: 'Program', updatedAt: '' };
+const CARD = { uid: '', name: '', balance: 0, byDay: {}, has: false, error: '' };   // the visitor's own card, optional
+const TM = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+const prep = o => {
+  const e = { rule: '', bonus: '', bring: '', note: '', check: '', ...o };
+  e.s = TM(o.from); e.e = TM(o.to); e.open = e.e - e.s >= 240;
+  e.kind = o.kind || (o.model === 'rate' ? 'time' : o.model === 'flat' ? 'mix' : 'task');
+  if (e.model === 'tasks') { e.items = e.items || []; e.home = (e.home || []).map(h => [h.name, h.pts]); }
+  return e;
+};
+const todayText = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+/** The minute of the day now, if [dayKey] is today; otherwise null. */
+const nowOf = dayKey => { const d = DAYS.find(x => x.key === dayKey); if (!d || d.date !== todayText()) return null; const n = new Date(); return n.getHours() * 60 + n.getMinutes(); };
+const dayLabel = key => (DAYS.find(d => d.key === key) || { label: '' }).label.split(' ')[0];
+const startOfDay = () => { const ev = E.filter(e => e.day === S.day); return ev.length ? Math.floor(Math.min(...ev.map(e => e.s)) / 60) * 60 + 100 : 0; };
+const hm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(Math.round(m) % 60).padStart(2, '0');
+const range = e => hm(e.s) + '–' + hm(e.e);
+const dur = m => (m >= 60 ? Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '') : m + ' min');
+const KIND = { time: 'Points per time', task: 'Points per task', mix: 'Mixed' };
+
+/* ---------- points for staying a number of minutes ---------- */
+function earn(e, minutes) {
+  if (e.model === 'flat') return minutes >= e.e - e.s ? e.cap : 0;
+  if (e.model === 'rate') {
+    const d = Math.min(minutes, e.maxMin || Infinity);
+    return Math.min(Math.floor(d / e.block) * e.rate, e.cap ?? Infinity);
+  }
+  // tasks: best points per minute first; the last one counts for the share of it that fits
+  let left = minutes, pts = 0;
+  for (const t of [...e.items].sort((a, b) => b.pts / b.min - a.pts / a.min)) {
+    const take = Math.min(1, left / t.min); if (take <= 0) break;
+    pts += t.pts * take; left -= t.min * take;
+  }
+  return Math.floor(pts + 1e-9);
+}
+const window_ = e => e.e - e.s;
+const maxPts = e => earn(e, window_(e));
+const perHour = e => earn(e, Math.min(60, window_(e)));
+/** The stay that earns everything an hour can, or all there is: what the card is dropped with. */
+function defaultDur(e) {
+  if (e.model === 'flat') return window_(e);
+  if (e.model === 'rate') {
+    const cap = e.cap != null ? Math.ceil(e.cap / e.rate) * e.block : Infinity;
+    return Math.min(window_(e), e.maxMin || 60, 60, cap);
+  }
+  return Math.min(window_(e), Math.ceil(e.items.reduce((s, t) => s + t.min, 0)), 60);
+}
+/** Minutes more for the next points, for the hint under the line. */
+function nextStep(e, d) {
+  if (e.model === 'rate') {
+    if (d >= (e.maxMin || Infinity) || earn(e, d) >= (e.cap ?? Infinity)) return null;
+    return e.block - (d % e.block);
+  }
+  if (e.model === 'tasks') { const now = earn(e, d); for (let k = d + 1; k <= window_(e); k++) if (earn(e, k) > now) return k - d; }
+  return null;
+}
+const isHeld = e => !e.open;   // fixed hours: the colour band is only part of the day
+
+/* ---------- state ---------- */
+let likes = new Set();
+let placed = {};
+const loadSaved = () => {
+  try {
+    const l = JSON.parse(localStorage.getItem('pont-program-likes') || 'null'); if (Array.isArray(l)) likes = new Set(l.filter(id => byId[id]));
+    const p = JSON.parse(localStorage.getItem('pont-program-placed') || 'null');
+    if (p && typeof p === 'object') placed = Object.fromEntries(Object.entries(p).filter(([id, v]) => byId[id] && Number.isFinite(v.start) && Number.isFinite(v.dur)));
+  } catch {}
+};
+const persist = () => { try { localStorage.setItem('pont-program-likes', JSON.stringify([...likes])); localStorage.setItem('pont-program-placed', JSON.stringify(placed)); } catch {} };
+const S = { tab: 'plan', day: '', queue: 'all', idx: 0, sel: null, t: 0, sheet: null, toast: '' };
+const dayEvents = () => E.filter(e => e.day === S.day);
+const domain = () => { const ev = dayEvents(); return [Math.floor(Math.min(...ev.map(e => e.s)) / 60) * 60, Math.ceil(Math.max(...ev.map(e => e.e)) / 60) * 60]; };
+const snap = () => { const [a, b] = domain(); return b - a > 300 ? 15 : 5; };
+const placedOn = day => Object.entries(placed).filter(([id]) => byId[id].day === day).map(([id, v]) => ({ id, e: byId[id], ...v }));
+const earnedOf = p => earn(p.e, p.dur);
+const HEART = '<svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-9.2-9.4C1.6 7.6 3.8 4.5 7 4.5c2 0 3.7 1.1 5 3 1.3-1.9 3-3 5-3 3.2 0 5.4 3.1 4.2 6.6C19.5 15.9 12 20.5 12 20.5z"/></svg>';
+const $ = (s, r = document) => r.querySelector(s);
+
+/* ---------- where a block can go ---------- */
+/** Free stretches of [from, to] once the blocks of [others] are taken out. */
+function freeParts(from, to, others) {
+  let parts = [[from, to]];
+  for (const o of others) parts = parts.flatMap(([a, b]) => { const s = Math.max(a, o.start), e = Math.min(b, o.start + o.dur); if (e <= s) return [[a, b]]; return [[a, s], [e, b]].filter(([x, y]) => y > x); });
+  return parts;
+}
+/** The nearest legal place for a block of [d] minutes wanted at [want]: inside the event's hours, clear of other blocks, on the snap grid. */
+function fitAt(e, want, d, ignoreId) {
+  const g = snap(), others = placedOn(e.day).filter(p => p.id !== ignoreId);
+  const parts = freeParts(e.s, e.e, others).map(([a, b]) => [Math.ceil(a / g) * g, Math.floor(b / g) * g]).filter(([a, b]) => b - a >= g);
+  let best = null;
+  for (const [a, b] of parts) {
+    const len = Math.min(d, b - a); if (len < g || (len < d && e.model === 'flat')) continue;
+    const start = Math.round(Math.min(Math.max(want, a), b - len) / g) * g;
+    const cost = Math.abs(start - want) + (d - len) * 2;
+    if (!best || cost < best.cost) best = { start, dur: len, cost };
+  }
+  return best;
+}
+
+/* ---------- status on top of both tabs ---------- */
+function totals() {
+  const planned = key => placedOn(key).reduce((s, p) => s + earnedOf(p), 0);
+  const planAll = DAYS.reduce((s, d) => s + planned(d.key), 0), planDay = planned(GOAL.dayKey);
+  const gotDay = CARD.byDay[GOAL.dayKey] || 0;
+  return { got: CARD.balance, gotDay, planAll, planDay, total: CARD.balance + planAll, dayTotal: gotDay + planDay };
+}
+function drawStatus() {
+  const T = totals(), live = S.tab === 'pulse', name = dayLabel(GOAL.dayKey);
+  const bar = (g, p, goal) => `<div class="meter"><i class="got" style="width:${Math.min(100, g / Math.max(1, goal) * 100)}%"></i><i class="plan" style="width:${Math.max(0, Math.min(100, (g + p) / Math.max(1, goal) * 100) - Math.min(100, g / Math.max(1, goal) * 100))}%"></i></div>`;
+  const col = (title, need, value, detail, missing, g, p, goal) => `<div class="row"><div class="rt"><span>${title}</span><span>need ${need}</span></div><div class="nums"><span>${value}<small> ${detail}</small></span><em class="${missing <= 0 ? '' : 'no'}">${missing <= 0 ? 'OK' : missing + ' short'}</em></div>${bar(g, p, goal)}</div>`;
+  if (live) {   // Pulse: only what the card has really earned so far
+    $('#status').innerHTML = col('Earned so far', GOAL.total, T.got, 'points', GOAL.total - T.got, T.got, 0, GOAL.total) + col(name + ' so far', GOAL.dayMin, T.gotDay, 'points', GOAL.dayMin - T.gotDay, T.gotDay, 0, GOAL.dayMin);
+    return;
+  }
+  $('#status').innerHTML = col('With your plan', GOAL.total, T.total, `= ${T.got} + ${T.planAll}`, GOAL.total - T.total, T.got, T.planAll, GOAL.total)   // Plan: what the card has plus what the plan would add
+    + col(name + ' with plan', GOAL.dayMin, T.dayTotal, `= ${T.gotDay} + ${T.planDay}`, GOAL.dayMin - T.dayTotal, T.gotDay, T.planDay, GOAL.dayMin);
+}
+
+/* ---------- plan tab ---------- */
+function queueOf() {
+  const list = dayEvents().filter(e => !placed[e.id] && (S.queue === 'all' || likes.has(e.id)));
+  return list.sort((a, b) => a.open - b.open || a.s - b.s || maxPts(b) - maxPts(a));
+}
+function planTab() {
+  const [d0, d1] = domain(), q = queueOf(), e = q.length ? q[((S.idx % q.length) + q.length) % q.length] : null;
+  const pct = m => ((m - d0) / (d1 - d0) * 100).toFixed(3) + '%', w = (a, b) => ((b - a) / (d1 - d0) * 100).toFixed(3) + '%';
+  const hours = []; for (let h = d0; h <= d1; h += (d1 - d0 > 300 ? 120 : 60)) hours.push(h);
+  const mine = placedOn(S.day).sort((a, b) => a.start - b.start), used = mine.reduce((s, p) => s + p.dur, 0);
+  const card = e ? `<div class="pcard k-${e.kind}" id="pcard" data-id="${e.id}">
+      <div class="head"><span class="chip">${KIND[e.kind]}</span><button class="heart" data-like="${e.id}" aria-pressed="${likes.has(e.id)}" aria-label="Like">${HEART}</button></div>
+      <h3>${e.title}</h3>
+      <div class="meta">${e.room} · ${e.open ? 'open ' : ''}${range(e)}</div>
+      <div class="worth"><b>${perHour(e)}</b><span>${maxPts(e) <= perHour(e) ? 'points in total' : 'points in the first hour'}</span></div>
+      <div class="rule">${e.rule}${e.bonus ? ' Bonus: ' + e.bonus + '.' : ''}</div>
+      ${e.model === 'tasks' && e.items.length > 1 ? `<div class="inside">${e.items.slice(0, 4).map(t => `<span>${t.name.replace(/ \(.*\)/, '')} ${t.pts}</span>`).join('')}${e.items.length > 4 ? `<span>+${e.items.length - 4} more</span>` : ''}</div>` : ''}
+      ${e.check ? `<div class="check">Check: ${e.check}</div>` : ''}
+      <div class="grab"><svg viewBox="0 0 24 24"><path d="M12 4v15m0 0-6-6m6 6 6-6"/></svg>DRAG ONTO YOUR DAY</div></div>`
+    : `<div class="emptycard">${S.queue === 'liked' ? 'Nothing liked is left to place. Switch to All, or like more in Pulse.' : 'Everything for this day is on your line.'}</div>`;
+  const sel = S.sel && placed[S.sel] && byId[S.sel].day === S.day ? { id: S.sel, e: byId[S.sel], ...placed[S.sel] } : null;
+  return `<div class="qrow"><div class="seg"><button data-queue="liked" aria-pressed="${S.queue === 'liked'}">Liked</button><button data-queue="all" aria-pressed="${S.queue === 'all'}">All</button></div>
+      <span class="cnt">${q.length ? ((S.idx % q.length) + q.length) % q.length + 1 : 0} of ${q.length}</span><button class="nav" data-step="-1" aria-label="Previous">‹</button><button class="nav" data-step="1" aria-label="Next">›</button></div>
+    <div class="cardzone">${card}</div>
+    <div class="dayline"><div class="dl-top"><b>Your ${dayLabel(S.day)}</b><span id="dlsum">${mine.length} planned · ${dur(used)} · ${dur(Math.max(0, d1 - d0 - used))} free</span></div>
+      <div class="track k-${e ? e.kind : 'time'}" id="track" data-d0="${d0}" data-d1="${d1}">
+        ${hours.map(h => `<span class="tk" style="left:${pct(h)}"></span><span class="tl" style="left:${pct(h)}">${hm(h)}</span>`).join('')}
+        ${e ? `<div class="dim" style="left:0;width:${w(d0, e.s)}"></div><div class="dim" style="left:${pct(e.e)};width:${w(e.e, d1)}"></div>
+          <div class="band" style="left:${pct(e.s)};width:${w(e.s, e.e)}"><span>${e.open ? 'open ' : 'held '}${range(e)}</span></div>` : ''}
+        ${nowOf(S.day) !== null && nowOf(S.day) >= d0 && nowOf(S.day) <= d1 ? `<span class="now" style="left:${pct(nowOf(S.day))}"></span>` : ''}
+        ${mine.map(p => `<div class="pb k-${p.e.kind}${sel && sel.id === p.id ? ' sel' : ''}${p.e.model === 'flat' ? ' fixed' : ''}" data-block="${p.id}" style="left:${pct(p.start)};width:${w(p.start, p.start + p.dur)}">
+          <i class="h l" data-h="l"></i><span class="tt">${p.e.title}</span><span class="pp">+${earnedOf(p)}</span><i class="h r" data-h="r"></i></div>`).join('')}
+        <div class="ghost" id="ghost"></div>
+      </div>
+      <div class="dl-sum">${e ? (e.open ? 'The colour is when it is open. Drop the card anywhere inside it.' : 'The colour is when it is held. Drop the card inside it.') : 'Tap a block to change it.'}</div></div>
+    ${sel ? selPanel(sel) : `<div class="list">${mine.length ? mine.map(p => `<button class="it k-${p.e.kind}" data-select="${p.id}"><b>${hm(p.start)}–${hm(p.start + p.dur)} · ${p.e.title}</b><span>${dur(p.dur)}</span><span class="pp">+${earnedOf(p)}</span></button>`).join('') : '<p class="empty">Your day is empty. Drag a card onto the line.</p>'}</div>`}`;
+}
+function selPanel(p) {
+  const e = p.e, pts = earnedOf(p), more = nextStep(e, p.dur), top = maxPts(e);
+  return `<div class="panel k-${e.kind}" id="panel"><div class="ph"><b>${e.title}</b><span class="big" style="color:var(--kc)">+${pts}</span></div>
+    <div class="sub">${hm(p.start)}–${hm(p.start + p.dur)} · ${dur(p.dur)} · ${e.room}</div>
+    ${e.model === 'flat' ? '<div class="hint">You have to stay until the end for these points.</div>'
+      : more ? `<div class="hint">Stay ${more} min more for +${earn(e, p.dur + more) - pts}.</div>` : `<div class="hint">${pts >= top ? 'That is everything this event gives.' : 'No more points for staying longer here.'}</div>`}
+    <div class="btns">${e.model === 'flat' ? '' : `<button data-nudge="-1">− ${snap()} min</button><button data-nudge="1">+ ${snap()} min</button>`}<button data-block-open="${p.id}">Details</button><button class="rm" data-remove="${p.id}">Remove</button></div></div>`;
+}
+
+/* ---------- pulse tab ---------- */
+function pulseTab() {
+  const [d0, d1] = domain(), step = 30, cells = [];
+  for (let m = d0; m < d1; m += step) cells.push(m);
+  const open = at => dayEvents().filter(e => e.s <= at && e.e > at);
+  const counts = cells.map(m => open(m).length), max = Math.max(1, ...counts);
+  const t = Math.min(d1 - 1, Math.max(d0, S.t)), now = open(t);
+  const soon = now.filter(e => e.e - t <= 30).sort((a, b) => a.e - b.e);
+  const next = dayEvents().filter(e => e.s > t && e.s - t <= 30).sort((a, b) => a.s - b.s);
+  const rest = now.filter(e => !soon.includes(e)).sort((a, b) => perHour(b) - perHour(a) || a.title.localeCompare(b.title));
+  const card = e => {
+    const left = e.e - t, p = placed[e.id];
+    return `<div class="ecard k-${e.kind}" data-open="${e.id}" role="button" tabindex="0">
+      <div><div class="tt">${e.title}</div><div class="sub">${e.room} · ${range(e)}</div></div>
+      <div class="pts">${perHour(e)}<small>${maxPts(e) <= perHour(e) ? 'total' : 'in 1 hour'}</small></div>
+      <div class="span"><span class="chip">${KIND[e.kind]}</span><div class="mini"><i style="left:${(e.s - d0) / (d1 - d0) * 100}%;width:${(e.e - e.s) / (d1 - d0) * 100}%"></i><u style="left:${(t - d0) / (d1 - d0) * 100}%"></u></div>
+      ${p ? `<span class="inplan">${hm(p.start)}</span>` : `<span class="ends${left <= 30 && e.s <= t ? ' soon' : ''}">${e.s > t ? 'in ' + (e.s - t) + ' min' : e.open ? 'open' : left + ' min left'}</span>`}
+      <button class="heart" data-like="${e.id}" aria-pressed="${likes.has(e.id)}" aria-label="Like ${e.title}">${HEART}</button></div></div>`;
+  };
+  return `<div class="nowtime"><b>${hm(t)}</b><span>${now.length} open, ${soon.length} close within 30 min</span></div>
+  <div class="heatbox"><div class="heat" id="heat">${cells.map((m, i) => `<i style="height:${Math.max(10, counts[i] / max * 100)}%"${m <= t && t < m + step ? ' data-in' : ''}></i>`).join('')}
+    <span class="cur" style="left:${(t - d0) / (d1 - d0) * 100}%"></span></div>
+    <div class="heatlab">${[0, 1, 2, 3, 4].map(i => `<span>${hm(d0 + i * (d1 - d0) / 4)}</span>`).join('')}</div></div>
+  ${soon.length ? `<div class="group">Closing soon</div>${soon.map(card).join('')}` : ''}
+  ${next.length ? `<div class="group">Starting in the next 30 min</div>${next.map(card).join('')}` : ''}
+  <div class="group">Open now, best first (${rest.length})</div>${rest.map(card).join('') || '<p class="empty">Nothing is open at this time.</p>'}`;
+}
+
+/* ---------- sheet ---------- */
+function sheet() {
+  const e = byId[S.sheet]; if (!e) return '';
+  const p = placed[e.id], fit = fitAt(e, Math.max(e.s, nowOf(e.day) > e.s ? nowOf(e.day) : e.s), defaultDur(e));
+  return `<div class="scrim" data-close><div class="sheet k-${e.kind}" data-stop role="dialog" aria-label="${e.title}"><div class="sgrab"></div>
+    <div><span class="chip">${KIND[e.kind]}</span></div><h3>${e.title}</h3>
+    <div class="facts"><div><small>When</small><b>${range(e)}</b></div><div><small>Where</small><b>${e.room}</b></div>
+      <div><small>First hour</small><b>${perHour(e)} points</b></div><div><small>Everything</small><b>${maxPts(e)} points</b></div></div>
+    <p class="rule">${e.rule}${e.bonus ? ' <b>Bonus:</b> ' + e.bonus + '.' : ''}${e.note ? ' ' + e.note : ''}</p>
+    ${e.model === 'tasks' && e.items.length > 1 ? `<div class="items">${e.items.map(t => `<div><span>${t.name}</span><b>${t.pts} p · ~${t.min} min</b></div>`).join('')}${e.home.map(t => `<div><span>${t[0]}</span><b>${t[1]} p</b></div>`).join('')}</div>` : ''}
+    ${e.model === 'tasks' ? '<p class="rule" style="font-size:12px">Minutes per task are a guess, so the plan can show points for a stay.</p>' : ''}
+    ${e.bring ? `<p class="rule"><b>Bring:</b> ${e.bring}</p>` : ''}
+    ${e.check ? `<p class="rule" style="color:var(--amber-ink)"><b>Check:</b> ${e.check}</p>` : ''}
+    <div class="cta"><button data-close>Close</button><button data-like="${e.id}" aria-pressed="${likes.has(e.id)}">${likes.has(e.id) ? 'Liked' : 'Like'}</button>
+      ${p ? `<button class="go" data-goplan="${e.id}">In your plan at ${hm(p.start)}</button>` : `<button class="go" data-add="${e.id}" ${fit ? '' : 'disabled'}>${fit ? 'Add to my day at ' + hm(fit.start) : 'No room in your day'}</button>`}</div></div></div>`;
+}
+
+/* ---------- the notes next to the planner, and the visitor's card ---------- */
+function drawNotes() {
+  const chk = E.filter(e => e.check);
+  $('#notes').innerHTML = `<h2>How it works</h2>
+    <ol><li><b>Plan.</b> The card shows one event. Its hours are coloured on your line. Drag the card onto the line to put it in your day.</li>
+    <li>Drag the edges of a block to choose how long you stay. The number in the block is the points for that stay, and the points on top follow.</li>
+    <li><b>Pulse.</b> Drag along the graph to see what is open at any time. The points on top are then the ones you have really earned.</li>
+    <li>Your plan and likes stay in this browser.</li></ol>
+    <form class="fact cardbox" id="cardform"><b>Your card</b> ${CARD.has ? `<span>${CARD.name}: <b>${CARD.balance} points</b>. <button type="button" class="linkish" id="cardforget">Use another card</button></span>`
+      : `<span>Type the number on your card to see the points you have earned.</span>
+      <span class="cardrow"><input id="carduid" placeholder="04:A2:3B:1C" autocomplete="off" value="${CARD.uid}" aria-label="Card number"><button class="go" type="submit">Show my points</button></span>`}
+      ${CARD.error ? `<span class="bad">${CARD.error}</span>` : ''}</form>
+    <div class="fact"><b>${E.length} events.</b> ${E.filter(e => e.open).length} of them are open for hours and you pick the time; the rest have fixed hours. Several activities of an island are one card, with the activities listed inside. The minutes per task are a guess, so the points for a short stay at those are an estimate.${chk.length ? ` Rows that were unclear on the paper sheet say “Check” on their card: ${chk.map(e => e.title).join(', ')}.` : ''}</div>
+    <div class="legend"><span><i style="background:var(--green)"></i>Points per time</span><span><i style="background:var(--amber-ink)"></i>Points per task</span><span><i style="background:var(--mix)"></i>Mixed or fixed award</span></div>
+    <button class="linkish" id="reset">Clear my plan and likes</button>`;
+}
+
+/* ---------- drawing ---------- */
+function draw() {
+  const view = $('#view'), y = view.scrollTop, pl = view.dataset.tab === S.tab ? y : 0;
+  view.dataset.tab = S.tab;
+  view.innerHTML = (S.tab === 'plan' ? planTab() : pulseTab()) + sheet() + (S.toast ? `<div class="toast">${S.toast}</div>` : '');
+  view.scrollTop = pl;
+  drawStatus();
+  $('#tabs').innerHTML = [['plan', 'Plan'], ['pulse', 'Pulse']].map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}</button>`).join('');
+  $('#days').innerHTML = DAYS.map(d => `<button data-day="${d.key}" aria-pressed="${S.day === d.key}">${d.label.split(' ')[0]}</button>`).join('');
+  if (S.tab === 'plan') { bindCard(); bindBlocks(); markNarrow(); } else bindHeat();
+}
+const markNarrow = () => document.querySelectorAll('.pb').forEach(b => b.classList.toggle('narrow', b.offsetWidth < 84));
+let toastTimer;
+function toast(msg) { S.toast = msg; draw(); clearTimeout(toastTimer); toastTimer = setTimeout(() => { S.toast = ''; const t = $('.toast'); if (t) t.remove(); }, 1800); }
+
+/* ---------- dragging the card onto the line ---------- */
+function bindCard() {
+  const card = $('#pcard'), track = $('#track'); if (!card) return;
+  const e = byId[card.dataset.id], g = snap(), d = defaultDur(e), ghost = $('#ghost');
+  let x0 = null, y0 = 0, drop = null;
+  const minuteAt = x => { const r = track.getBoundingClientRect(), d0 = +track.dataset.d0, d1 = +track.dataset.d1; return d0 + (x - r.left) / r.width * (d1 - d0); };
+  const pctOf = m => ((m - +track.dataset.d0) / (+track.dataset.d1 - +track.dataset.d0) * 100) + '%';
+  card.addEventListener('pointerdown', ev => { if (ev.target.closest('button')) return; x0 = ev.clientX; y0 = ev.clientY; card.setPointerCapture(ev.pointerId); card.classList.add('drag'); });
+  card.addEventListener('pointermove', ev => {
+    if (x0 === null) return;
+    const dx = ev.clientX - x0, dy = ev.clientY - y0, r = track.getBoundingClientRect();
+    const near = Math.min(1, Math.max(0, dy / Math.max(60, r.top - card.getBoundingClientRect().top + dy)));
+    card.style.transform = `translate(${dx}px,${dy}px) scale(${1 - near * .4})`; card.style.opacity = String(1 - near * .5);   // small and see-through over the line, so the line stays visible
+    const over = ev.clientY > r.top - 36 && ev.clientY < r.bottom + 36 && ev.clientX > r.left - 20 && ev.clientX < r.right + 20;
+    if (!over) { ghost.style.display = 'none'; drop = null; return; }
+    drop = fitAt(e, Math.round((minuteAt(ev.clientX) - d / 2) / g) * g, d);
+    ghost.style.display = 'flex'; ghost.classList.toggle('bad', !drop);
+    const show = drop || { start: Math.round((minuteAt(ev.clientX) - d / 2) / g) * g, dur: d };
+    ghost.style.left = pctOf(show.start); ghost.style.width = ((show.dur) / (+track.dataset.d1 - +track.dataset.d0) * 100) + '%';
+    ghost.textContent = drop ? '+' + earn(e, drop.dur) : 'No room';
+  });
+  const end = ev => {
+    if (x0 === null) return;
+    const moved = Math.hypot(ev.clientX - x0, ev.clientY - y0); x0 = null;
+    card.classList.remove('drag');
+    if (drop) { placed[e.id] = { start: drop.start, dur: drop.dur }; S.sel = e.id; persist(); draw(); }
+    else { card.style.transition = 'transform .18s, opacity .18s'; card.style.transform = ''; card.style.opacity = ''; ghost.style.display = 'none'; if (moved < 6) { S.sheet = e.id; draw(); } else if (ev.type === 'pointerup') { /* dropped away from the line: it springs back */ } }
+    drop = null;
+  };
+  card.addEventListener('pointerup', end); card.addEventListener('pointercancel', end);
+}
+
+/* ---------- moving and resizing blocks on the line ---------- */
+function bindBlocks() {
+  const track = $('#track'); if (!track) return;
+  const d0 = +track.dataset.d0, d1 = +track.dataset.d1, g = snap();
+  track.querySelectorAll('.pb').forEach(el => {
+    const id = el.dataset.block, e = byId[id];
+    let mode = null, x0 = 0, orig = null, moved = false, lo = 0, hi = 0;
+    el.addEventListener('pointerdown', ev => {
+      const h = ev.target.closest('.h'); mode = h && e.model !== 'flat' ? h.dataset.h : (e.model === 'flat' ? null : 'move');
+      x0 = ev.clientX; orig = { ...placed[id] }; moved = false; el.setPointerCapture(ev.pointerId);
+      const others = placedOn(e.day).filter(p => p.id !== id);
+      lo = Math.max(e.s, ...others.filter(p => p.start + p.dur <= orig.start).map(p => p.start + p.dur));
+      hi = Math.min(e.e, ...others.filter(p => p.start >= orig.start + orig.dur).map(p => p.start));
+      if (mode === null) mode = 'tap';
+    });
+    el.addEventListener('pointermove', ev => {
+      if (!mode || mode === 'tap') return;
+      const per = (ev.clientX - x0) / track.getBoundingClientRect().width * (d1 - d0), dm = Math.round(per / g) * g;
+      if (Math.abs(ev.clientX - x0) > 3) moved = true;
+      let { start, dur: du } = orig;
+      if (mode === 'move') start = Math.min(Math.max(orig.start + dm, lo), hi - du);
+      if (mode === 'l') { start = Math.min(Math.max(orig.start + dm, lo), orig.start + orig.dur - g); du = orig.start + orig.dur - start; }
+      if (mode === 'r') du = Math.min(Math.max(orig.dur + dm, g), hi - orig.start);
+      placed[id] = { start, dur: du };
+      el.style.left = ((start - d0) / (d1 - d0) * 100) + '%'; el.style.width = (du / (d1 - d0) * 100) + '%';
+      $('.pp', el).textContent = '+' + earn(e, du);
+      el.classList.toggle('narrow', el.offsetWidth < 84);
+      drawStatus();
+    });
+    const end = () => {
+      if (!mode) return; const m = mode; mode = null;
+      if (m === 'tap' || !moved) { S.sel = S.sel === id ? null : id; draw(); return; }
+      S.sel = id; persist(); draw();
+    };
+    el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  });
+}
+function bindHeat() {
+  const heat = $('#heat'); if (!heat) return;
+  const [d0, d1] = domain(); const box = heat.parentElement;
+  const at = x => { const r = heat.getBoundingClientRect(); S.t = Math.round((d0 + Math.min(1, Math.max(0, (x - r.left) / r.width)) * (d1 - d0)) / 5) * 5; };
+  let down = false;
+  box.addEventListener('pointerdown', e => { down = true; box.setPointerCapture(e.pointerId); at(e.clientX); draw(); });
+  box.addEventListener('pointermove', e => { if (down) { at(e.clientX); draw(); } });
+  box.addEventListener('pointerup', () => { down = false; });
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click', ev => {
+  const t = ev.target;
+  const like = t.closest('[data-like]'); if (like) { ev.stopPropagation(); const id = like.dataset.like; likes.has(id) ? likes.delete(id) : likes.add(id); persist(); draw(); return; }
+  const tab = t.closest('[data-tab]'); if (tab) { S.tab = tab.dataset.tab; S.sheet = null; draw(); return; }
+  const day = t.closest('[data-day]'); if (day) { S.day = day.dataset.day; S.t = nowOf(S.day) ?? startOfDay(); S.idx = 0; S.sel = null; draw(); return; }
+  const qu = t.closest('[data-queue]'); if (qu) { S.queue = qu.dataset.queue; S.idx = 0; draw(); return; }
+  const st = t.closest('[data-step]'); if (st) { S.idx += Number(st.dataset.step); draw(); return; }
+  const nu = t.closest('[data-nudge]');
+  if (nu && S.sel) {
+    const p = placed[S.sel], e = byId[S.sel], g = snap(), others = placedOn(e.day).filter(o => o.id !== S.sel);
+    const hi = Math.min(e.e, ...others.filter(o => o.start >= p.start + p.dur).map(o => o.start));
+    const nd = Math.min(Math.max(p.dur + Number(nu.dataset.nudge) * g, g), hi - p.start);
+    placed[S.sel] = { start: p.start, dur: nd }; persist(); draw(); return;
+  }
+  const rm = t.closest('[data-remove]'); if (rm) { delete placed[rm.dataset.remove]; S.sel = null; persist(); draw(); return; }
+  const add = t.closest('[data-add]'); if (add) {
+    const e = byId[add.dataset.add], want = nowOf(e.day) > e.s && nowOf(e.day) < e.e ? nowOf(e.day) : e.s, fit = fitAt(e, want, defaultDur(e));
+    if (fit) { placed[e.id] = { start: fit.start, dur: fit.dur }; S.sel = e.id; S.sheet = null; S.day = e.day; persist(); draw(); toast('Added to your day'); } return;
+  }
+  const gp = t.closest('[data-goplan]'); if (gp) { S.sel = gp.dataset.goplan; S.sheet = null; S.day = byId[gp.dataset.goplan].day; S.tab = 'plan'; draw(); return; }
+  const sl = t.closest('[data-select]'); if (sl) { S.sel = sl.dataset.select; draw(); return; }
+  const bo = t.closest('[data-block-open]'); if (bo && !t.closest('[data-nudge]')) { S.sheet = bo.dataset.blockOpen; draw(); return; }
+  if (t.closest('[data-stop]') && !t.closest('[data-close]')) return;
+  if (t.closest('[data-close]')) { S.sheet = null; draw(); return; }
+  const o = t.closest('[data-open]'); if (o) { S.sheet = o.dataset.open; draw(); return; }
+  if (t.id === 'reset') { likes = new Set(); placed = {}; S.sel = null; S.idx = 0; persist(); draw(); }
+  if (t.id === 'cardforget') { try { localStorage.removeItem('pont-program-card'); } catch {} Object.assign(CARD, { uid: '', name: '', balance: 0, byDay: {}, has: false, error: '' }); drawNotes(); draw(); }
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && S.sheet) { S.sheet = null; draw(); } if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches('[data-open]')) { ev.preventDefault(); S.sheet = ev.target.dataset.open; draw(); } });
+addEventListener('resize', markNarrow);
+
+/* ---------- the card, if the visitor gave one ---------- */
+/** Points earned on a day: the card's history without cancelled grants and their cancellations. */
+function earnedOn(history, date) {
+  const sum = history.filter(h => !h.stornoed && h.kind !== 'storno').reduce((s, h) => {
+    const d = new Date(h.at); if (Number.isNaN(d.getTime())) return s;
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` === date ? s + (h.amount || 0) : s;
+  }, 0);
+  return Math.max(0, sum);
+}
+async function loadCard(uid) {
+  CARD.error = '';
+  try {
+    const res = await fetch('/public/cards', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uids: [uid] }) });
+    if (res.status === 429) throw new Error('Too many tries. Wait a few minutes.');
+    const card = (await res.json()).cards?.[0];
+    if (!res.ok || !card || !card.found) throw new Error('That card number is not registered.');
+    Object.assign(CARD, { uid, name: card.name, balance: card.balance, has: true, byDay: Object.fromEntries(DAYS.map(d => [d.key, earnedOn(card.history || [], d.date)])) });
+    try { localStorage.setItem('pont-program-card', uid); } catch {}
+  } catch (e) { Object.assign(CARD, { has: false, error: e.message || 'Could not load the card.' }); }
+}
+document.addEventListener('submit', async ev => {
+  if (ev.target.id !== 'cardform') return;
+  ev.preventDefault();
+  const uid = $('#carduid').value.trim(); if (!uid) return;
+  await loadCard(uid); drawNotes(); draw();
+});
+
+/* ---------- start: ask the server for the program ---------- */
+async function boot() {
+  const view = $('#view');
+  view.innerHTML = '<p class="empty">Loading the program…</p>';
+  try {
+    const res = await fetch('/public/program');
+    if (!res.ok) throw new Error('status ' + res.status);
+    const doc = await res.json();
+    PROGRAM = doc; Object.assign(GOAL, doc.goal); DAYS.splice(0, DAYS.length, ...doc.days);
+    E.splice(0, E.length, ...doc.events.map(prep)); for (const k of Object.keys(byId)) delete byId[k]; for (const e of E) byId[e.id] = e;
+    if (!E.length) throw new Error('empty');
+  } catch (e) {
+    view.innerHTML = '<p class="empty">The program could not be loaded. Try again in a moment.</p>'; return;
+  }
+  loadSaved();
+  S.day = (DAYS.find(d => d.date === todayText()) || DAYS[0]).key; S.t = nowOf(S.day) ?? startOfDay();
+  document.title = PROGRAM.title + ' · program';
+  $('#title').textContent = PROGRAM.title;
+  let uid = ''; try { uid = localStorage.getItem('pont-program-card') || ''; } catch {}
+  if (uid) await loadCard(uid);
+  drawNotes(); draw();
+}
+boot();
+</script>
+</body>
+</html>

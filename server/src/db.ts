@@ -47,6 +47,9 @@ create table if not exists balance_adjustments(
   id text primary key, card_id text not null references cards(id), delta integer not null,
   staff_id text, created_at text not null, balance_after integer, reason text
 );
+create table if not exists program(
+  id integer primary key check(id=1), json text not null, updated_at text not null
+);
 create table if not exists card_suggestions(
   uid text primary key, terminal_id text references terminals(id),
   first_seen text not null, last_seen text not null, count integer not null default 1

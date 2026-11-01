@@ -19,6 +19,7 @@ import { registerFixed } from './routes/fixed.js';
 import { registerDisplay } from './routes/display.js';
 import { registerInfo } from './routes/info.js';
 import { registerPublic } from './routes/public.js';
+import { registerProgram } from './routes/program.js';
 import { registerSite } from './routes/site.js';
 import { DisplayHub } from './display.js';
 import { LiveHub, registerLive, type LiveOptions } from './live.js';
@@ -70,6 +71,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   registerDisplay(app, opts.dataDir ?? './data');
   registerInfo(app);
   registerPublic(app, opts.dataDir ?? './data');
+  registerProgram(app);
   registerSite(app, opts.dataDir ?? './data');
   app.register(fastifyStatic, { root: join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'display'), prefix: '/display-assets/', decorateReply: false });
   app.get('/health', async () => ({ ok: true }));

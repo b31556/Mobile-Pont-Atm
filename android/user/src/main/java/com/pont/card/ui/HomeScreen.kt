@@ -49,7 +49,7 @@ fun HomeScreen(state: HomeState, nfc: NfcStatus, onRefresh: () -> Unit, onOpen: 
         Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Pont Card", color = p.ink3, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text("Your cards", style = Type.display(34), color = p.ink)
+                Text("Your card", style = Type.display(34), color = p.ink)
             }
             if (state.items.isNotEmpty()) {
                 Box(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onRefresh).padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
@@ -68,11 +68,6 @@ fun HomeScreen(state: HomeState, nfc: NfcStatus, onRefresh: () -> Unit, onOpen: 
                     items(state.items, key = { it.uid }) { item -> CardTile(item) { onOpen(item.uid) } }
                 }
             }
-            if (nfc != NfcStatus.Unsupported) {
-                PrimaryButton("Add a card", Modifier.padding(horizontal = 20.dp, vertical = 12.dp).navigationBarsPadding(), onAdd)
-            } else {
-                Text("Adding a card needs NFC, and this phone doesn't have it.", color = p.ink3, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding())
-            }
         }
     }
 }
@@ -82,7 +77,7 @@ private fun EmptyHome(nfc: NfcStatus, onAdd: () -> Unit, modifier: Modifier) {
     val p = palette
     Column(modifier.fillMaxWidth().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("No cards yet", style = Type.display(28), color = p.ink, textAlign = TextAlign.Center)
+            Text("No card yet", style = Type.display(28), color = p.ink, textAlign = TextAlign.Center)
             Spacer(Modifier.height(12.dp))
             Text(
                 if (nfc == NfcStatus.Unsupported) "Adding a card needs NFC, and this phone doesn't have it."

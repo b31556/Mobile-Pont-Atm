@@ -27,7 +27,7 @@ data class RefreshResult(val items: List<CardItem>, val notice: Notice?)
 sealed interface LookupResult {
     data class Saved(val uid: String, val card: PublicCard, val isNew: Boolean) : LookupResult
     data object NotRegistered : LookupResult
-    /** The phone already holds [UidStore.MAX_CARDS] cards. */
+    /** The phone already holds its one card ([UidStore.MAX_CARDS]), and this is a different one. */
     data object Full : LookupResult
     data class Failed(val message: String, val offline: Boolean) : LookupResult
 }

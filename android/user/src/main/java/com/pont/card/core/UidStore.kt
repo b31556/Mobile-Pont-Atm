@@ -3,12 +3,12 @@ package com.pont.card.core
 enum class AddResult { Added, AlreadySaved, Full, Invalid }
 
 /**
- * The cards saved on this phone: canonical UIDs in the order they were added, no duplicates.
- * One request to the server carries at most [MAX_CARDS] UIDs, so that is also how many can be saved.
+ * The card saved on this phone: a canonical UID. A phone keeps one card, its owner's own ([MAX_CARDS]); to use another, remove this one first.
+ * A phone that saved several under an earlier version keeps showing only the first.
  */
 class UidStore(private val kv: KeyValueStore) {
     fun list(): List<String> =
-        kv.get(KEY)?.split('\n')?.filter { it.isNotBlank() }?.distinct().orEmpty()
+        kv.get(KEY)?.split('\n')?.filter { it.isNotBlank() }?.distinct()?.take(MAX_CARDS).orEmpty()
 
     fun contains(uid: String): Boolean = normalizeUid(uid)?.let { it in list() } ?: false
 
@@ -31,7 +31,7 @@ class UidStore(private val kv: KeyValueStore) {
     }
 
     companion object {
-        const val MAX_CARDS = 10
+        const val MAX_CARDS = 1
         private const val KEY = "uids"
     }
 }

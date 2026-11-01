@@ -5,7 +5,7 @@ import fastifyStatic from '@fastify/static';
 import type { FastifyInstance } from 'fastify';
 
 /**
- * The public pages: the home page at /, the app download page at /app, and the app files themselves at /downloads/.
+ * The public pages: the home page at /, the app download page at /app, the event program planner at /program, and the app files themselves at /downloads/.
  * The files are published (not part of the code) into <data folder>/downloads: the signed .apk files and an apps.json
  * saying which version each is, so the page can show it. See deploy/README.md.
  */
@@ -13,12 +13,15 @@ export function registerSite(app: FastifyInstance, dataDir: string) {
   const here = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'site');
   const home = readFileSync(join(here, 'home.html'));
   const appPage = readFileSync(join(here, 'app.html'));
+  const programPage = readFileSync(join(here, 'program.html'));
   const page = (body: Buffer) => async (_req: unknown, reply: import('fastify').FastifyReply) =>
     reply.header('cache-control', 'no-cache').type('text/html; charset=utf-8').send(body);
 
   app.get('/', page(home));
   app.get('/app', page(appPage));
   app.get('/app/', async (_req, reply) => reply.redirect('/app', 301));
+  app.get('/program', page(programPage));
+  app.get('/program/', async (_req, reply) => reply.redirect('/program', 301));
 
   app.register(fastifyStatic, { root: here, prefix: '/site-assets/', decorateReply: false, cacheControl: false, setHeaders: reply => { reply.header('cache-control', 'no-cache'); } });
 

@@ -6,3 +6,6 @@ android/.gradle
 android/local.properties
 .playwright-mcp
 .superpowers
+
+# the event's own program and design files: kept out of the public repository
+private/

@@ -19,6 +19,8 @@ data class Palette(
     val bg: Color, val surface: Color, val ink: Color, val ink2: Color, val ink3: Color, val line: Color,
     val green: Color, val greenSoft: Color, val red: Color, val redSoft: Color, val amber: Color, val amberSoft: Color,
     val onGreen: Color = Color.White, val dark: Boolean,
+    /** The colours of the three kinds of points on the program: per time (green), per task (amber ink) and mixed (blue). */
+    val amberInk: Color = Color(0xFF6B4A00), val mix: Color = Color(0xFF2B4A63), val mixSoft: Color = Color(0xFFE3ECF3),
 )
 
 val LightPalette = Palette(
@@ -31,6 +33,7 @@ val DarkPalette = Palette(
     bg = Color(0xFF0F1A22), surface = Color(0xFF182630), ink = Color(0xFFF2F5F7), ink2 = Color(0xFFB6C3CC), ink3 = Color(0xFF8A9AA6),
     line = Color(0xFF263541), green = Color(0xFF5BD58A), greenSoft = Color(0xFF16352A), red = Color(0xFFFF8A82), redSoft = Color(0xFF3B2024),
     amber = Color(0xFFF5B31F), amberSoft = Color(0xFF3A2F14), onGreen = Color(0xFF0B2A17), dark = true,
+    amberInk = Color(0xFFF5D27A), mix = Color(0xFF9FC1DD), mixSoft = Color(0xFF1F3342),
 )
 
 val LocalPalette = staticCompositionLocalOf { LightPalette }

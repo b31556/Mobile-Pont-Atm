@@ -56,10 +56,10 @@ class CardsModelTest {
     }
 
     @Test fun removeDropsTheCardEverywhere() {
-        store.add("04:A2:3B:1C"); store.add("04:BB:CC:DD"); cache.put("04:A2:3B:1C", anna)
+        store.add("04:A2:3B:1C"); cache.put("04:A2:3B:1C", anna)
         val m = CardsModel(CardsRepository(store, cache, Fake(FetchResult.Offline)), scope())
         m.remove("04:A2:3B:1C")
-        assertEquals(listOf("04:BB:CC:DD"), m.state.value.items.map { it.uid }); assertEquals(listOf("04:BB:CC:DD"), store.list()); assertNull(cache.get("04:A2:3B:1C"))
+        assertTrue(m.state.value.items.isEmpty()); assertTrue(store.list().isEmpty()); assertNull(cache.get("04:A2:3B:1C"))
     }
 
     @Test fun reloadPicksUpACardAddedElsewhere() {

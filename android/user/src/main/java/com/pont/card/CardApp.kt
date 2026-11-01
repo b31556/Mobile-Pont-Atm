@@ -5,7 +5,11 @@ import com.pont.card.core.AddCardFlow
 import com.pont.card.core.CardsApi
 import com.pont.card.core.CardsModel
 import com.pont.card.core.CardsRepository
+import com.pont.card.core.PlanStore
 import com.pont.card.core.PrefsKeyValueStore
+import com.pont.card.core.ProgramApi
+import com.pont.card.core.ProgramModel
+import com.pont.card.core.ProgramRepository
 import com.pont.card.core.SnapshotCache
 import com.pont.card.core.UidStore
 import kotlinx.coroutines.CoroutineScope
@@ -19,6 +23,7 @@ class AppGraph(app: Application) {
     val repo = CardsRepository(UidStore(kv), SnapshotCache(kv), CardsApi(BuildConfig.DEFAULT_BASE_URL))
     val model = CardsModel(repo, scope)
     val add = AddCardFlow(repo)
+    val program = ProgramModel(ProgramRepository(kv, ProgramApi(BuildConfig.DEFAULT_BASE_URL)), PlanStore(kv), scope)
 }
 
 class CardApp : Application() {

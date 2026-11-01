@@ -26,14 +26,14 @@ class CardsRepositoryTest {
         assertTrue(r.items.isEmpty()); assertNull(r.notice); assertTrue(f.calls.isEmpty())
     }
 
-    @Test fun refreshAsksForAllSavedCardsInOrderAndKeepsTheAnswers() = runTest {
-        store.add("04:BB:CC:DD"); store.add("04:A2:3B:1C")
+    @Test fun refreshAsksForTheSavedCardAndKeepsTheAnswer() = runTest {
+        store.add("04:A2:3B:1C")
         val f = Fake(FetchResult.Ok(listOf(anna(), bela())))
         val repo = CardsRepository(store, cache, f)
         val r = repo.refresh()
-        assertEquals(listOf(listOf("04:BB:CC:DD", "04:A2:3B:1C")), f.calls)
-        assertEquals(listOf("04:BB:CC:DD", "04:A2:3B:1C"), r.items.map { it.uid })
-        assertEquals(listOf(5, 12), r.items.map { it.card!!.balance })
+        assertEquals(listOf(listOf("04:A2:3B:1C")), f.calls)
+        assertEquals(listOf("04:A2:3B:1C"), r.items.map { it.uid })
+        assertEquals(listOf(12), r.items.map { it.card!!.balance })
         assertTrue(r.items.all { it.state == ItemState.Fresh }); assertNull(r.notice)
         assertEquals(12, cache.get("04:A2:3B:1C")!!.balance)
     }
@@ -51,12 +51,17 @@ class CardsRepositoryTest {
         assertEquals(listOf("04:A2:3B:1C"), store.list()) // the user decides to remove it
     }
 
-    @Test fun offlineShowsTheSavedCopiesWithANotice() = runTest {
-        store.add("04:A2:3B:1C"); store.add("04:BB:CC:DD"); cache.put("04:A2:3B:1C", anna(12))
+    @Test fun offlineShowsTheSavedCopyWithANotice() = runTest {
+        store.add("04:A2:3B:1C"); cache.put("04:A2:3B:1C", anna(12))
         val r = CardsRepository(store, cache, Fake(FetchResult.Offline)).refresh()
         assertEquals(Notice.Offline, r.notice)
-        assertEquals(ItemState.Saved, r.items[0].state); assertEquals(12, r.items[0].card!!.balance)
-        assertEquals(ItemState.Unavailable, r.items[1].state); assertNull(r.items[1].card)
+        assertEquals(ItemState.Saved, r.items.single().state); assertEquals(12, r.items.single().card!!.balance)
+    }
+
+    @Test fun offlineWithNothingSavedIsUnavailable() = runTest {
+        store.add("04:A2:3B:1C")
+        val r = CardsRepository(store, cache, Fake(FetchResult.Offline)).refresh()
+        assertEquals(ItemState.Unavailable, r.items.single().state); assertNull(r.items.single().card)
     }
 
     @Test fun httpErrorsShowTheMessageAndStillTheSavedCopies() = runTest {
@@ -68,15 +73,15 @@ class CardsRepositoryTest {
     }
 
     @Test fun aCardMissingFromTheAnswerFallsBackToItsSavedCopy() = runTest {
-        store.add("04:A2:3B:1C"); store.add("04:BB:CC:DD"); cache.put("04:BB:CC:DD", bela(7))
+        store.add("04:BB:CC:DD"); cache.put("04:BB:CC:DD", bela(7))
         val r = CardsRepository(store, cache, Fake(FetchResult.Ok(listOf(anna())))).refresh()
-        assertEquals(ItemState.Fresh, r.items[0].state); assertEquals(ItemState.Saved, r.items[1].state); assertEquals(7, r.items[1].card!!.balance)
+        assertEquals(ItemState.Saved, r.items.single().state); assertEquals(7, r.items.single().card!!.balance)
     }
 
     @Test fun savedShowsWhatIsOnThePhoneWithoutTheServer() {
-        store.add("04:A2:3B:1C"); store.add("04:BB:CC:DD"); cache.put("04:A2:3B:1C", anna())
+        store.add("04:A2:3B:1C"); cache.put("04:A2:3B:1C", anna())
         val s = CardsRepository(store, cache, Fake(FetchResult.Offline)).saved()
-        assertEquals(listOf(ItemState.Saved, ItemState.Unavailable), s.map { it.state })
+        assertEquals(listOf(ItemState.Saved), s.map { it.state })
     }
 
     // ---- adding by tap ----

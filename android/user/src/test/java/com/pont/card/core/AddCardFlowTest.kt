@@ -74,18 +74,28 @@ class AddCardFlowTest {
         f.reset(); assertEquals(AddState.Waiting, f.state.value)
     }
 
-    @Test fun aSecondCardCanBeAddedForAParentWithTwoKids() = runTest {
+    @Test fun aSecondCardIsRefusedWhileThePhoneHoldsOne() = runTest {
         val api = Fake(FetchResult.Ok(listOf(anna))); val f = flow(api)
         f.onTagId(id); f.reset()
         api.next = FetchResult.Ok(listOf(PublicCard("04:BB:CC:DD", true, "Béla", "active", 3, null, emptyList())))
         f.onTagId(byteArrayOf(4, 0xBB.toByte(), 0xCC.toByte(), 0xDD.toByte()))
-        assertEquals(listOf("04:A2:3B:1C", "04:BB:CC:DD"), store.list())
+        assertEquals(AddState.Full, f.state.value)
+        assertEquals(listOf("04:A2:3B:1C"), store.list())
     }
 
     @Test fun aFullPhoneSaysSo() = runTest {
         repeat(UidStore.MAX_CARDS) { store.add("04:00:00:%02X".format(it)) }
         val f = flow(Fake(FetchResult.Ok(listOf(anna)))); f.onTagId(id)
         assertEquals(AddState.Full, f.state.value)
+    }
+
+    @Test fun aRemovedCardMakesRoomForADifferentOne() = runTest {
+        val api = Fake(FetchResult.Ok(listOf(anna))); val f = flow(api)
+        f.onTagId(id); f.reset()
+        store.remove("04:A2:3B:1C")
+        api.next = FetchResult.Ok(listOf(PublicCard("04:BB:CC:DD", true, "Béla", "active", 3, null, emptyList())))
+        f.onTagId(byteArrayOf(4, 0xBB.toByte(), 0xCC.toByte(), 0xDD.toByte()))
+        assertEquals(listOf("04:BB:CC:DD"), store.list())
     }
 
     @Test fun aCancelledCallerStillGetsTheAnswerInTheState() = runTest {

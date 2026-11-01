@@ -12,9 +12,9 @@ class UidStoreTest {
 
     @Test fun startsEmpty() = assertEquals(emptyList<String>(), store.list())
 
-    @Test fun cardsKeepTheOrderTheyWereAddedIn() {
+    @Test fun theFirstCardIsTheOneThatStays() {
         store.add("04:BB:CC:DD"); store.add("04:A2:3B:1C"); store.add("04:00:00:01")
-        assertEquals(listOf("04:BB:CC:DD", "04:A2:3B:1C", "04:00:00:01"), store.list())
+        assertEquals(listOf("04:BB:CC:DD"), store.list())
     }
 
     @Test fun theSameCardIsNeverSavedTwiceWhateverTheSpelling() {
@@ -24,9 +24,9 @@ class UidStoreTest {
         assertEquals(listOf("04:A2:3B:1C"), store.list())
     }
 
-    @Test fun addingAgainDoesNotMoveACard() {
+    @Test fun addingTheSameCardAgainChangesNothing() {
         store.add("04:A2:3B:1C"); store.add("04:BB:CC:DD"); store.add("04:A2:3B:1C")
-        assertEquals(listOf("04:A2:3B:1C", "04:BB:CC:DD"), store.list())
+        assertEquals(listOf("04:A2:3B:1C"), store.list())
     }
 
     @Test fun savedUidsAreCanonical() {
@@ -34,13 +34,13 @@ class UidStoreTest {
         assertEquals(listOf("04:A2:3B:1C"), store.list())
     }
 
-    @Test fun removingTakesOneCardOutAndLeavesTheRest() {
-        store.add("04:A2:3B:1C"); store.add("04:BB:CC:DD")
+    @Test fun removingTheCardLeavesRoomForAnother() {
+        store.add("04:A2:3B:1C")
         store.remove("04a23b1c")
-        assertEquals(listOf("04:BB:CC:DD"), store.list())
-        store.remove("04:BB:CC:DD")
         assertEquals(emptyList<String>(), store.list())
         assertNull(kv.get("uids"))
+        assertEquals(AddResult.Added, store.add("04:BB:CC:DD"))
+        assertEquals(listOf("04:BB:CC:DD"), store.list())
     }
 
     @Test fun removingAnUnknownCardChangesNothing() {
@@ -53,6 +53,21 @@ class UidStoreTest {
         assertEquals(emptyList<String>(), store.list())
     }
 
+    @Test fun aPhoneKeepsOneCard() {
+        assertEquals(1, UidStore.MAX_CARDS)
+        assertEquals(AddResult.Added, store.add("04:A2:3B:1C"))
+        assertEquals(AddResult.Full, store.add("04:00:00:01"))
+        assertEquals(listOf("04:A2:3B:1C"), store.list())
+        store.remove("04:A2:3B:1C")
+        assertEquals(AddResult.Added, store.add("04:00:00:01"))
+    }
+
+    @Test fun severalCardsSavedByAnEarlierVersionShowOnlyTheFirst() {
+        kv.put("uids", "04:A2:3B:1C\n04:00:00:01\n04:00:00:02")
+        assertEquals(listOf("04:A2:3B:1C"), store.list())
+        assertEquals(AddResult.Full, store.add("04:00:00:09"))
+    }
+
     @Test fun thereIsARoomLimit() {
         repeat(UidStore.MAX_CARDS) { assertEquals(AddResult.Added, store.add("04:00:00:%02X".format(it))) }
         assertEquals(AddResult.Full, store.add("04:FF:FF:FF"))
@@ -60,10 +75,10 @@ class UidStoreTest {
         assertEquals(UidStore.MAX_CARDS, store.list().size)
     }
 
-    @Test fun cardsSurviveARestart() {
-        store.add("04:A2:3B:1C"); store.add("04:BB:CC:DD")
-        assertEquals(listOf("04:A2:3B:1C", "04:BB:CC:DD"), UidStore(kv).list())
-        assertTrue(UidStore(kv).contains("04bbccdd")); assertFalse(UidStore(kv).contains("04:00:00:00"))
+    @Test fun theCardSurvivesARestart() {
+        store.add("04:A2:3B:1C")
+        assertEquals(listOf("04:A2:3B:1C"), UidStore(kv).list())
+        assertTrue(UidStore(kv).contains("04a23b1c")); assertFalse(UidStore(kv).contains("04:00:00:00"))
     }
 }
 

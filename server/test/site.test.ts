@@ -89,3 +89,27 @@ describe('downloads', () => {
     }
   });
 });
+
+describe('the program planner page', () => {
+  it('is served at /program and /program/ goes there', async () => {
+    const { app } = await make();
+    const res = await get(app, '/program');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
+    expect(res.body).toContain("fetch('/public/program')");
+    expect(res.body).toContain('id="view"');
+    const r = await get(app, '/program/');
+    expect(r.statusCode).toBe(301); expect(r.headers.location).toBe('/program');
+  });
+  it('is linked from the home page', async () => {
+    const { app } = await make();
+    expect((await get(app, '/')).body).toContain('href="/program"');
+  });
+  it('reads the program and the card from the public endpoints only', async () => {
+    const { app } = await make();
+    const body = (await get(app, '/program')).body;
+    const calls = [...body.matchAll(/fetch\('([^']+)'/g)].map(m => m[1]);
+    expect(new Set(calls)).toEqual(new Set(['/public/program', '/public/cards']));
+    expect(body).not.toMatch(/Authorization|Bearer/i);
+  });
+});
