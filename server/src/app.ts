@@ -18,6 +18,7 @@ import { registerDevices } from './routes/devices.js';
 import { registerFixed } from './routes/fixed.js';
 import { registerDisplay } from './routes/display.js';
 import { DisplayHub } from './display.js';
+import { LiveHub, registerLive, type LiveOptions } from './live.js';
 
 export interface AppOptions {
   db: Db; jwtSecret: string; dataDir?: string;
@@ -25,6 +26,7 @@ export interface AppOptions {
   trustProxy?: boolean | string | string[];
   /** Refuse any request that did not arrive over https (as reported by a trusted proxy), except /health. */
   requireHttps?: boolean;
+  live?: LiveOptions;
 }
 
 export function buildApp(opts: AppOptions): FastifyInstance {
@@ -42,6 +44,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   });
   app.decorate('db', opts.db);
   app.decorate('displayHub', new DisplayHub());
+  app.decorate('live', new LiveHub(opts.live));
   app.decorate('loginLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
   app.decorate('loginIpLimiter', new AttemptLimiter(30, 15 * 60 * 1000));   // wrong logins from one address, whatever the email
   app.decorate('pairLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
@@ -50,6 +53,7 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.register(fastifyStatic, { root: join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'admin'), prefix: '/admin/' });
   app.get('/', async (_req, reply) => reply.redirect('/admin/'));
   registerAuth(app);
+  registerLive(app, app.live);
   registerStaff(app);
   registerTerminals(app);
   registerCards(app, opts.dataDir ?? './data');
@@ -66,5 +70,5 @@ export function buildApp(opts: AppOptions): FastifyInstance {
 }
 
 declare module 'fastify' {
-  interface FastifyInstance { displayHub: DisplayHub; db: Db; loginLimiter: AttemptLimiter; loginIpLimiter: AttemptLimiter; pairLimiter: AttemptLimiter }
+  interface FastifyInstance { displayHub: DisplayHub; live: LiveHub; db: Db; loginLimiter: AttemptLimiter; loginIpLimiter: AttemptLimiter; pairLimiter: AttemptLimiter }
 }

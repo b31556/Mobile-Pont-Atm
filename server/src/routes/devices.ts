@@ -54,11 +54,13 @@ export function registerDevices(app: FastifyInstance) {
       if (waiting >= MAX_WAITING) return reply.code(429).send({ error: 'Too many devices are waiting for approval. Approve or remove some in admin.' });
       const code = newPairCode();
       db.prepare("insert into devices(id,secret_hash,status,ip,firmware,first_seen,last_seen,pair_code) values(?,?,'pending',?,?,?,?,?)").run(b.deviceId, hash, ip, firmware, now, now, code);
+      app.live.notify(['devices']);   // a new reader is shown in admin at once
       return { status: 'pending', code };
     }
     if (!timingSafeEqual(Buffer.from(hash), Buffer.from(row.secret_hash))) {
       badSecrets.fail(ip);
       db.prepare('update devices set denied_count=denied_count+1, denied_ip=?, denied_at=? where id=?').run(ip, now, row.id);
+      app.live.notify(['devices']);   // the warning about a different secret shows at once
       return reply.code(403).send({ error: 'Wrong secret for this device' });
     }
     db.prepare('update devices set ip=?, firmware=?, last_seen=? where id=?').run(ip, firmware ?? row.firmware, now, row.id);

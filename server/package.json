@@ -13,6 +13,7 @@
     "@fastify/jwt": "^10.2.5",
     "@fastify/multipart": "^10.1.6",
     "@fastify/static": "^10.1.7",
+    "@fastify/websocket": "^11.3.6",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
     "fastify": "^5.12.7"
@@ -21,8 +22,10 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "ws": "^8.22.1"
   }
 }

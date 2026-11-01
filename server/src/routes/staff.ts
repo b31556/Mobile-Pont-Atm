@@ -38,6 +38,7 @@ export function registerStaff(app: FastifyInstance) {
     if (b.password !== undefined) { set.push('password_hash=?'); vals.push(newHash); }
     if (b.password !== undefined || b.active !== undefined || b.role !== undefined) set.push('token_version=token_version+1');
     if (set.length) app.db.prepare(`update staff set ${set.join(',')} where id=?`).run(...vals, id);
+    if (b.password !== undefined || b.active !== undefined || b.role !== undefined) app.live.disconnectStaff(id);   // their old sign-in no longer works, so their open pages stop too
     return app.db.prepare(`select ${pub} from staff where id=?`).get(id);
   });
 }

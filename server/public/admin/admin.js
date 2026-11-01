@@ -8,6 +8,8 @@ const $ = (s, r = document) => r.querySelector(s);
 const state = { page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [], zones: [], zoneId: null, devices: [] };
 let token = null;
 try { token = sessionStorage.getItem('pont-token'); } catch {}
+let liveState = 'off';   // off | connecting | live | waiting | offline
+const LIVE_LABELS = { connecting: 'Connecting…', live: 'Live', waiting: 'Update waiting', offline: 'Offline, retrying…' };
 
 /* ---------- api ---------- */
 async function api(method, path, body) {
@@ -23,6 +25,7 @@ async function api(method, path, body) {
   return data;
 }
 function signOut() {
+  disconnectLive();
   token = null; try { sessionStorage.removeItem('pont-token'); } catch {}
   photoCache.clear(); render();
 }
@@ -100,7 +103,7 @@ function shell(inner) {
   const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id}">${l}${id === 'cards' && state.suggestions.length ? `<span class="badge" title="Suggested cards">${state.suggestions.length}</span>` : ''}${id === 'readers' && state.devices.some(d => d.status === 'pending') ? `<span class="badge" title="Waiting for approval">${state.devices.filter(d => d.status === 'pending').length}</span>` : ''}</button>`;
   return `<div class="adm"><aside class="side"><div class="brand"><span class="coin">P</span>Pont admin</div>
     ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('readers', 'Readers')}${item('presence', 'Check-in')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
-    <div class="me"><button data-act="signout">Sign out</button></div></aside>
+    <div class="me"><div class="live" id="live" data-state="${liveState}" title="Pages update by themselves when something changes">${LIVE_LABELS[liveState] || ''}</div><button data-act="signout">Sign out</button></div></aside>
     <div class="pane">${inner}</div></div>${state.drawer ? drawerView() : ''}${state.modal ? modalView() : ''}
     ${state.toast ? `<div class="atoast" role="status">${esc(state.toast)}</div>` : ''}`;
 }
@@ -430,7 +433,7 @@ root.addEventListener('submit', async e => {
       const r = await api('POST', '/auth/login', { email: fd.get('email'), password: fd.get('password') });
       if (r.user.role !== 'admin') { state.loginError = 'This account is for the terminal app. Sign in with an admin account.'; return render(); }
       token = r.token; try { sessionStorage.setItem('pont-token', token); } catch {}
-      state.loginError = ''; state.page = 'cards'; await refresh();
+      state.loginError = ''; state.page = 'cards'; await refresh(); connectLive();
     } catch (err) { state.loginError = err.message; render(); }
   } else if (f.id === 'rules') {
     const err = document.getElementById('r-err'); err.textContent = '';
@@ -578,4 +581,115 @@ root.addEventListener('click', async e => {
   }
 });
 
-if (token) refresh(); else render();
+/* ---------- live updates (WebSocket) ---------- */
+/* The server only says what changed ("cards", "transactions" ...). The page then asks for its own data again, but never
+   while that would wipe something being typed: it waits until the person is done, then updates at once. */
+const PAGE_TOPICS = { cards: ['cards', 'transactions', 'suggestions'], terminals: ['terminals', 'zones'], readers: ['terminals', 'devices', 'zones'], presence: ['presence', 'zones', 'cards'], txns: ['transactions'], staff: ['staff'] };
+const ALWAYS_TOPICS = ['suggestions', 'devices'];   // their badges are in the side bar of every page
+const TIME_DEPENDENT = ['terminals', 'readers', 'presence'];   // "online", "minutes inside": they change as time passes, with no event
+let socket = null, reconnectTimer = null, reconnectDelay = 1000, hadConnection = false;
+let livePending = false, liveTimer = null, liveRefreshing = false;
+
+function setLiveState(next) {
+  liveState = next;
+  const el = document.getElementById('live');
+  if (el) { el.dataset.state = next; el.textContent = LIVE_LABELS[next] || ''; }
+}
+
+function connectLive() {
+  if (!token || socket) return;
+  clearTimeout(reconnectTimer);
+  setLiveState(hadConnection ? 'offline' : 'connecting');
+  let ws;
+  try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); }
+  catch { return scheduleReconnect(); }
+  socket = ws;
+  // A browser cannot send an Authorization header on a WebSocket, and a token in the address would end up in logs: sign in with the first message.
+  ws.addEventListener('open', () => ws.send(JSON.stringify({ type: 'auth', token })));
+  ws.addEventListener('message', ev => {
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    if (m.type === 'hello') {
+      reconnectDelay = 1000; setLiveState('live');
+      if (hadConnection) requestLiveRefresh();   // changes may have been missed while it was down
+      hadConnection = true;
+    } else if (m.type === 'changed' && Array.isArray(m.topics)) {
+      const mine = PAGE_TOPICS[state.page] || [];
+      if (m.topics.some(t => mine.includes(t) || ALWAYS_TOPICS.includes(t))) requestLiveRefresh();
+    }
+  });
+  ws.addEventListener('close', ev => {
+    if (socket === ws) socket = null; else return;
+    if (ev.code === 4401) { setLiveState('off'); if (token) signOut(); return; }   // the sign-in ended or was revoked
+    scheduleReconnect();
+  });
+  ws.addEventListener('error', () => { /* 'close' follows */ });
+}
+
+function scheduleReconnect() {
+  if (!token) return;
+  setLiveState('offline');
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectLive, reconnectDelay + Math.random() * 500);
+  reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+}
+
+function disconnectLive() {
+  clearTimeout(reconnectTimer); clearTimeout(liveTimer);
+  livePending = false; hadConnection = false; reconnectDelay = 1000;
+  const ws = socket; socket = null;
+  if (ws) { try { ws.close(1000); } catch {} }
+  setLiveState('off');
+}
+
+/** True while an update would disturb the person: a drawer or dialog is open, or a field has been changed and not saved yet. */
+function userIsBusy() {
+  if (state.drawer || state.modal) return true;
+  for (const el of root.querySelectorAll('input, select, textarea')) {
+    if (el.id === 'q') continue;   // the search box drives the list itself
+    if (el.type === 'checkbox' || el.type === 'radio') { if (el.checked !== el.defaultChecked) return true; }
+    else if (el.tagName === 'SELECT') {
+      const def = [...el.options].findIndex(o => o.defaultSelected);
+      if (el.selectedIndex !== (def === -1 ? 0 : def)) return true;
+    }
+    else if (el.type === 'file') { if (el.files && el.files.length) return true; }
+    else if (el.value !== el.defaultValue) return true;
+  }
+  const a = document.activeElement;   // a field that has the cursor is about to be typed in, even if still empty
+  return !!(a && a.id !== 'q' && root.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+}
+
+const saveView = () => ({ y: window.scrollY, pane: $('.pane')?.scrollTop ?? 0, tw: [...document.querySelectorAll('.tw')].map(e => e.scrollLeft) });
+function restoreView(v) {
+  window.scrollTo(0, v.y);
+  const pane = $('.pane'); if (pane) pane.scrollTop = v.pane;
+  document.querySelectorAll('.tw').forEach((e, i) => { if (v.tw[i] != null) e.scrollLeft = v.tw[i]; });
+}
+
+function requestLiveRefresh() {
+  livePending = true;
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(tryLiveRefresh, 200);   // changes that come in a burst are fetched once
+}
+
+async function tryLiveRefresh() {
+  if (!livePending || !token) return;
+  if (liveRefreshing) { liveTimer = setTimeout(tryLiveRefresh, 300); return; }
+  if (userIsBusy()) { setLiveState('waiting'); liveTimer = setTimeout(tryLiveRefresh, 1000); return; }
+  livePending = false; liveRefreshing = true;
+  try { await load(); } catch { /* the next change, or the periodic refresh, tries again */ }
+  liveRefreshing = false;
+  if (!token) return;
+  if (userIsBusy()) {   // the person opened something while the data was on its way: keep what they are typing; the new data shows when they are done
+    livePending = true; liveTimer = setTimeout(tryLiveRefresh, 1000); return;
+  }
+  const view = saveView();
+  render();
+  restoreView(view);
+  if (socket && socket.readyState === WebSocket.OPEN) setLiveState('live');
+}
+
+// Things like "online" and "minutes inside" change as time passes, without any event.
+setInterval(() => { if (token && TIME_DEPENDENT.includes(state.page) && !document.hidden) requestLiveRefresh(); }, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && token) { requestLiveRefresh(); if (!socket) connectLive(); } });
+
+if (token) { refresh(); connectLive(); } else render();
