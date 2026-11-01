@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from './db.js';
 import { TOO_MANY } from './limiter.js';
+import { normalizeUid } from './uid.js';
+import { findAdminByKey } from './adminkey.js';
 
 export type Role = 'admin' | 'operator';
 
@@ -105,6 +107,24 @@ export function registerAuth(app: FastifyInstance) {
     const seconds = b.remember === true && row.role === 'admin' ? REMEMBER_TOKEN_SECONDS : STAFF_TOKEN_SECONDS;
     const token = app.jwt.sign({ kind: 'staff', id: row.id, role: row.role, terminalId, v: row.token_version }, { expiresIn: seconds });
     return { token, user: { id: row.id, name: row.name, role: row.role } };
+  });
+
+  /**
+   * Signs an admin in by the card or tag set as their key (Pont Admin app, "Sign in with a key"). A card's number can be
+   * copied, so this is limited like the other sign-ins: a few misses per address, and a cap for the whole server.
+   */
+  app.post('/auth/key-login', async (req, reply) => {
+    const b = (req.body ?? {}) as { uid?: unknown; remember?: unknown };
+    if (app.keyLimiter.blocked(req.ip) || app.keyAllLimiter.blocked('all')) return reply.code(429).send(TOO_MANY);
+    const uid = typeof b.uid === 'string' ? normalizeUid(b.uid) : null;
+    const row = uid ? findAdminByKey(app.db, uid) : undefined;
+    if (!row || row.role !== 'admin' || !row.active) {
+      app.keyLimiter.fail(req.ip); app.keyAllLimiter.fail('all');
+      return reply.code(401).send({ error: 'That key is not recognised' });
+    }
+    const seconds = b.remember === true ? REMEMBER_TOKEN_SECONDS : STAFF_TOKEN_SECONDS;
+    const token = app.jwt.sign({ kind: 'staff', id: row.id, role: 'admin', v: row.token_version }, { expiresIn: seconds });
+    return { token, user: { id: row.id, name: row.name, role: 'admin' } };
   });
 
   app.get('/auth/me', { preHandler: app.requireStaff }, async req => req.user);

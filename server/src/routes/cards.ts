@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.js';
 import { stamp } from '../clock.js';
 import { normalizeUid } from '../uid.js';
+import { findAdminByKey, KEY_UID_TAKEN } from '../adminkey.js';
 import { avatarSvg, STYLES } from '../avatar.js';
 import { cardReport } from '../report.js';
 
@@ -75,6 +76,7 @@ export function checkImport(db: Db, input: unknown): { results: ImportResult[]; 
     firstSeen.set(uid, index);
     const existing = findCardByUid(db, uid);
     if (existing) return { index, ok: false, uid, error: `That UID is already on a card (${existing.name})` };
+    if (findAdminByKey(db, uid)) return { index, ok: false, uid, error: KEY_UID_TAKEN };
     rows.push({ name, uid, points });
     return { index, ok: true, uid };
   });
@@ -99,6 +101,7 @@ export function registerCards(app: FastifyInstance, dataDir: string) {
     const points = b.points ?? 0;
     if (!Number.isInteger(points) || points < 0) return reply.code(400).send({ error: 'Starting points must be 0 or more' });
     if (findCardByUid(db, uid)) return reply.code(409).send({ error: 'That UID is already on a card' });
+    if (findAdminByKey(db, uid)) return reply.code(409).send({ error: KEY_UID_TAKEN });
     const id = randomUUID();
     const name = b.name.trim();
     const style = Number.isInteger(b.photoStyle) ? b.photoStyle! : (db.prepare('select count(*) c from cards').get() as { c: number }).c % STYLES.length;
@@ -146,6 +149,7 @@ export function registerCards(app: FastifyInstance, dataDir: string) {
       if (!uid) return reply.code(400).send({ error: 'That is not a valid card UID' });
       const other = findCardByUid(db, uid);
       if (other && other.id !== id) return reply.code(409).send({ error: 'That UID is already on a card' });
+      if (findAdminByKey(db, uid)) return reply.code(409).send({ error: KEY_UID_TAKEN });
       set.push('uid=?'); vals.push(uid);
       db.prepare('delete from card_suggestions where uid=?').run(uid);
     }

@@ -51,6 +51,8 @@ export function buildApp(opts: AppOptions): FastifyInstance {
   app.decorate('loginLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
   app.decorate('loginIpLimiter', new AttemptLimiter(30, 15 * 60 * 1000));   // wrong logins from one address, whatever the email
   app.decorate('pairLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
+  app.decorate('keyLimiter', new AttemptLimiter(10, 15 * 60 * 1000));       // wrong keys from one address
+  app.decorate('keyAllLimiter', new AttemptLimiter(100, 60 * 60 * 1000));   // wrong keys from everywhere
   app.register(jwt, { secret: opts.jwtSecret });
   app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 } });
   app.register(fastifyStatic, { root: join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'admin'), prefix: '/admin/' });
@@ -75,5 +77,5 @@ export function buildApp(opts: AppOptions): FastifyInstance {
 }
 
 declare module 'fastify' {
-  interface FastifyInstance { displayHub: DisplayHub; live: LiveHub; db: Db; loginLimiter: AttemptLimiter; loginIpLimiter: AttemptLimiter; pairLimiter: AttemptLimiter }
+  interface FastifyInstance { displayHub: DisplayHub; live: LiveHub; db: Db; loginLimiter: AttemptLimiter; loginIpLimiter: AttemptLimiter; pairLimiter: AttemptLimiter; keyLimiter: AttemptLimiter; keyAllLimiter: AttemptLimiter }
 }

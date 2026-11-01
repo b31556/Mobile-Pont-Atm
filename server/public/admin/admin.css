@@ -334,3 +334,9 @@ tr.struck td:not(:last-child){text-decoration:line-through}
   .displaylink input[readonly]{min-width:0;flex:1 1 100%}
   .atoast{bottom:calc(16px + env(safe-area-inset-bottom));max-width:92vw;text-align:center}
 }
+
+.or{display:flex;align-items:center;gap:10px;color:var(--ink-3);font-size:13px}
+.or::before,.or::after{content:'';flex:1;height:1px;background:var(--line)}
+.btn svg{flex:none}
+
+.pill{white-space:nowrap}

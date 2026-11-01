@@ -101,6 +101,8 @@ export function openDb(path: string): Db {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  ensureColumn(db, 'staff', 'key_uid', 'text');   // the UID of the card or tag an admin signs in with (see adminkey.ts)
+  db.exec('create unique index if not exists staff_key_uid on staff(key_uid) where key_uid is not null');
   ensureColumn(db, 'terminals', 'mode', "text not null default 'atm'");
   ensureColumn(db, 'transactions', 'kind', "text not null default 'atm'");
   ensureColumn(db, 'transactions', 'note', 'text');

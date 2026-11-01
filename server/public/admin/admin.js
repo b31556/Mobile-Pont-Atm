@@ -99,6 +99,7 @@ function loginView() {
     <label class="field">Password<input name="password" type="password" autocomplete="current-password" required></label>
     ${state.loginError ? `<p class="err" role="alert">${esc(state.loginError)}</p>` : ''}
     <button class="btn green" style="justify-content:center">Sign in</button>
+    ${inApp() ? `<div class="or"><span>or</span></div><button class="btn line" type="button" data-act="keylogin" style="justify-content:center">${NFC_ICON} Sign in with a key</button>` : ''}
   </form></div>`;
 }
 
@@ -312,11 +313,12 @@ function txnsPane() {
 
 function staffPane() {
   const list = state.data.staff || [];
-  return `<div class="ph"><div><h1>Staff</h1><p>People who can sign in to this admin site. Phones don’t need a person to sign in.</p></div><span class="sp"></span><button class="btn green" data-act="newstaff">Add admin</button></div>
-    <div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>
+  return `<div class="ph"><div><h1>Staff</h1><p>People who can sign in to this admin site. Phones don’t need a person to sign in. An admin can also have a sign-in key: a card or tag that signs them in on the Pont Admin app.</p></div><span class="sp"></span><button class="btn green" data-act="newstaff">Add admin</button></div>
+    <div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Sign-in key</th><th>Status</th><th></th></tr></thead><tbody>
     ${list.map(s => `<tr><td><b>${esc(s.name)}</b></td><td class="mono">${esc(s.email)}</td><td>${s.role === 'admin' ? 'Admin' : 'Operator (old sign-in)'}</td>
+      <td>${s.role !== 'admin' ? '<span class="mute">—</span>' : s.hasKey ? `<span class="pill ok">Key set ${esc(s.keyHint || '')}</span>` : '<span class="mute">None</span>'}</td>
       <td>${s.active ? '<span class="pill ok">Active</span>' : '<span class="pill mute">Switched off</span>'}</td>
-      <td><div class="rowbtns"><button class="btn line sm" data-act="resetpw" data-id="${s.id}">Reset password</button><button class="btn line sm" data-act="staffactive" data-id="${s.id}" data-on="${s.active ? 1 : 0}">${s.active ? 'Switch off' : 'Switch on'}</button></div></td></tr>`).join('')}
+      <td><div class="rowbtns"><button class="btn line sm" data-act="resetpw" data-id="${s.id}">Reset password</button>${s.role === 'admin' ? `<button class="btn line sm" data-act="staffkey" data-id="${s.id}">${s.hasKey ? 'Change key' : 'Set key'}</button>` : ''}<button class="btn line sm" data-act="staffactive" data-id="${s.id}" data-on="${s.active ? 1 : 0}">${s.active ? 'Switch off' : 'Switch on'}</button></div></td></tr>`).join('')}
     </tbody></table></div>`;
 }
 
@@ -419,6 +421,14 @@ function modalView() {
     <label class="field" style="text-align:left">Email<input name="email" type="email" required></label>
     <p class="err" id="s-err" role="alert"></p>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button><button class="btn green" style="flex:1;justify-content:center">Add</button></div></form></div>`;
+  if (m.kind === 'staffkey') return `<div class="modal-scrim" data-act="closemodal"><form class="modal" id="keyform" data-stop>
+    <h2>${m.hasKey ? 'Change' : 'Set'} sign-in key</h2>
+    <p style="color:var(--ink-2);text-align:left">${esc(m.name)} can sign in on the Pont Admin app by holding this card or tag to the phone, with no password.</p>
+    <label class="field" style="text-align:left">Key UID<span class="withbtn"><input id="k-uid" class="mono" placeholder="04:A2:3B:1C" autocomplete="off" required>${nfcButton('k-uid')}</span></label>
+    <p class="warnline" style="text-align:left">A card’s number can be copied by anyone who gets to read it. Keep this key with you. Use a card that is only a key, not one that holds points.</p>
+    <p class="note" style="text-align:left">${m.hasKey ? 'Changing or removing the key signs out everyone who signed in with it' + (m.self ? ' (that includes you).' : '.') : ''}</p>
+    <p class="err" id="k-err" role="alert"></p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button>${m.hasKey ? `<button class="btn red" style="flex:1;justify-content:center" type="button" data-act="removekey" data-id="${m.id}">Remove</button>` : ''}<button class="btn green" style="flex:1;justify-content:center">Save</button></div></form></div>`;
   if (m.kind === 'secret') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
     <h2>${esc(m.title)}</h2><p style="color:var(--ink-2)">Give ${esc(m.who)} this temporary password. It is shown only once.</p>
     <div class="secret">${esc(m.password)}</div><button class="btn green" style="justify-content:center" data-act="closemodal">Done</button></div></div>`;
@@ -532,6 +542,16 @@ function visitInfo(id) {
   return v ? { name: r.card.name, points: v.points } : { name: 'This card', points: 0 };
 }
 
+/** Who is signed in, read from the token (it is not secret: it is the part the server signed). */
+const myId = () => { try { return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).id; } catch { return null; } };
+
+/** After a sign-in, with a password or a key: keeps the token and opens the Cards page. */
+async function finishLogin(r) {
+  if (r.user.role !== 'admin') { state.loginError = 'This account is for the terminal app. Sign in with an admin account.'; return render(); }
+  token = r.token; try { tokenStore().setItem('pont-token', token); } catch {}
+  state.loginError = ''; state.page = 'cards'; await refresh(); connectLive();
+}
+
 /* ---------- events ---------- */
 const tempPassword = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
 
@@ -541,10 +561,7 @@ root.addEventListener('submit', async e => {
   if (f.id === 'login') {
     const fd = new FormData(f);
     try {
-      const r = await api('POST', '/auth/login', { email: fd.get('email'), password: fd.get('password'), remember: !!window.PontNative });
-      if (r.user.role !== 'admin') { state.loginError = 'This account is for the terminal app. Sign in with an admin account.'; return render(); }
-      token = r.token; try { tokenStore().setItem('pont-token', token); } catch {}
-      state.loginError = ''; state.page = 'cards'; await refresh(); connectLive();
+      await finishLogin(await api('POST', '/auth/login', { email: fd.get('email'), password: fd.get('password'), remember: !!window.PontNative }));
     } catch (err) { state.loginError = err.message; render(); }
   } else if (f.id === 'rules') {
     const err = document.getElementById('r-err'); err.textContent = '';
@@ -581,6 +598,13 @@ root.addEventListener('submit', async e => {
       const dir = { toggle: 'sign in or out', in: 'sign in only', out: 'sign out only' }[body.direction];
       state.modal = { kind: 'batchcodes', rows: r.terminals, expiresAt: r.expiresAt, modeLabel: mode === 'atm' ? 'ATM' : mode === 'info' ? 'Info kiosk' : `Check-in (${dir}${zone ? ', ' + zone : ''})` };
       await refresh();
+    } catch (ex) { err.textContent = ex.message; }
+  } else if (f.id === 'keyform') {
+    const err = document.getElementById('k-err'); err.textContent = '';
+    try {
+      const m = state.modal;
+      await api('PUT', `/staff/${m.id}/key`, { uid: document.getElementById('k-uid').value });
+      state.modal = null; await refresh(); toast('Key saved.');
     } catch (ex) { err.textContent = ex.message; }
   } else if (f.id === 'staffform') {
     const fd = new FormData(f), password = tempPassword();
@@ -720,6 +744,9 @@ root.addEventListener('click', async e => {
     case 'storno': await guard(async () => { await api('POST', `/transactions/${id}/storno`); await refresh(); toast('Stornoed T-' + id + '.'); }); break;
     case 'newstaff': state.modal = { kind: 'newstaff' }; render(); break;
     case 'staffactive': await guard(async () => { await api('PATCH', '/staff/' + id, { active: el.dataset.on !== '1' }); await refresh(); }); break;
+    case 'keylogin': { const uid = await scanCard(); if (!uid) break; try { await finishLogin(await api('POST', '/auth/key-login', { uid, remember: true })); } catch (err) { buzz('bad'); state.loginError = err.message; render(); } break; }
+    case 'staffkey': { const s = state.data.staff.find(x => x.id === id); state.modal = { kind: 'staffkey', id, name: s.name, hasKey: s.hasKey, self: s.id === myId() }; render(); break; }
+    case 'removekey': await guard(async () => { await api('DELETE', `/staff/${id}/key`); state.modal = null; await refresh(); toast('Key removed.'); }); break;
     case 'resetpw': await guard(async () => {
       const s = state.data.staff.find(x => x.id === id), password = tempPassword();
       await api('PATCH', '/staff/' + id, { password });
@@ -1114,6 +1141,7 @@ async function scanInto(target) {
   const uid = await scanCard();
   if (!uid) return;
   if (target === 'q') { state.q = uid; const q = $('#q'); if (q) q.value = uid; await refresh(); return; }
+  if (target === 'k-uid') { const k = $('#k-uid'); if (k) { k.value = uid; const e = $('#k-err'); if (e) e.textContent = ''; } return; }
   const field = $('#d-uid'), note = $('#d-nfc');
   if (!field || !state.drawer) return;
   field.value = uid; state.drawer.uid = uid;
