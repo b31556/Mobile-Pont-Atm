@@ -14,15 +14,18 @@ async function make() {
 const get = (app: Awaited<ReturnType<typeof make>>['app'], url: string) => app.inject({ method: 'GET', url });
 
 describe('the home page', () => {
-  it('lists the app page, the program and the display, and not the admin', async () => {
+  it('lists the app page and the program as tiles, and the display and the admin as small links last', async () => {
     const { app } = await make();
     const res = await get(app, '/');
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
-    const order = ['/app', '/program', '/display'].map(h => res.body.indexOf(`href="${h}"`));
+    const order = ['/app', '/program', '/display', '/admin/'].map(h => res.body.indexOf(`href="${h}"`));
     expect(order.every(i => i > 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    expect(res.body).not.toContain('href="/admin/"');
+    const small = res.body.indexOf('class="small-links"');
+    expect(small).toBeGreaterThan(res.body.indexOf('href="/program"'));
+    expect(res.body.indexOf('href="/display"')).toBeGreaterThan(small); expect(res.body.indexOf('href="/admin/"')).toBeGreaterThan(small);
+    expect(res.body.match(/class="tile"/g)).toHaveLength(2);
   });
 });
 
@@ -136,9 +139,9 @@ describe('the app page says what Pont Card really does', () => {
     expect(more).not.toMatch(/kiosk|scan|sign in|key|Excel|check people|give points|cancel/i);
     expect(body).not.toMatch(/For staff|For admins/);
   });
-  it('does not list the admin on the home page, the program page or the app page menu', async () => {
+  it('does not list the admin on the program page or the app page menu', async () => {
     const { app } = await make();
-    for (const url of ['/', '/program']) expect((await get(app, url)).body, url).not.toMatch(/admin/i);
+    expect((await get(app, '/program')).body).not.toMatch(/admin/i);
     const appPage = (await get(app, '/app')).body;
     expect(appPage.slice(appPage.indexOf('<nav>'), appPage.indexOf('</nav>'))).not.toMatch(/admin/i);
   });

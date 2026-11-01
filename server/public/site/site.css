@@ -134,3 +134,9 @@ footer{text-align:center;color:var(--ink-3);font-size:14px;padding-bottom:30px}
 .btn.small:hover{background:var(--ink-2)}
 .btn.small[aria-disabled=true]{background:var(--line);color:var(--ink-3)}
 .btn.small svg{width:18px;height:18px}
+
+/* the last segment of the home page: small links */
+.small-links{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:14px 4px 0;border-top:1px solid var(--line)}
+.small-links span{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-right:6px}
+.small-links a{padding:7px 14px;border-radius:999px;background:var(--card);box-shadow:0 0 0 1px var(--line);text-decoration:none;font-size:14px;font-weight:700;color:var(--ink-2)}
+.small-links a:hover{color:var(--ink);box-shadow:0 0 0 1.5px var(--ink-3)}
