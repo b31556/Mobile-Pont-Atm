@@ -9,6 +9,8 @@ export type Role = 'admin' | 'operator';
 /** Compared against when the account does not exist or is switched off, so every login attempt costs the same time. */
 const DUMMY_HASH = bcrypt.hashSync('no-such-account-password', 10);
 export const STAFF_TOKEN_SECONDS = 12 * 60 * 60;
+/** What an admin signing in from the Pont Admin app (which asks to be remembered) gets: a week. Changing the password or switching the account off ends it at once. */
+export const REMEMBER_TOKEN_SECONDS = 7 * 24 * 60 * 60;
 /** `viaTerminal`: the request was made with a paired phone's terminal token alone, with no person signed in (id is then the terminal's id). */
 export interface StaffUser { id: string; name: string; role: Role; terminalId?: string; viaTerminal?: boolean }
 
@@ -77,7 +79,7 @@ export function registerAuth(app: FastifyInstance) {
   app.decorate('requireOperator', (req: FastifyRequest, reply: FastifyReply) => staffCheck(req, reply, 'operator'));
 
   app.post('/auth/login', async (req, reply) => {
-    const b = (req.body ?? {}) as { email?: unknown; password?: unknown; terminalToken?: string };
+    const b = (req.body ?? {}) as { email?: unknown; password?: unknown; terminalToken?: string; remember?: unknown };
     const email = typeof b.email === 'string' ? b.email.toLowerCase() : '';
     const password = typeof b.password === 'string' ? b.password : '';
     const limitKey = `${req.ip}|${email.slice(0, 200)}`;
@@ -99,7 +101,9 @@ export function registerAuth(app: FastifyInstance) {
       if ('error' in t) return reply.code(401).send({ error: t.error });
       terminalId = t.terminalId;
     }
-    const token = app.jwt.sign({ kind: 'staff', id: row.id, role: row.role, terminalId, v: row.token_version }, { expiresIn: STAFF_TOKEN_SECONDS });
+    // Only an admin can be remembered, and only by asking (the website never does): a paired phone's operator keeps the 12 hours.
+    const seconds = b.remember === true && row.role === 'admin' ? REMEMBER_TOKEN_SECONDS : STAFF_TOKEN_SECONDS;
+    const token = app.jwt.sign({ kind: 'staff', id: row.id, role: row.role, terminalId, v: row.token_version }, { expiresIn: seconds });
     return { token, user: { id: row.id, name: row.name, role: row.role } };
   });
 

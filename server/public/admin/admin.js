@@ -6,8 +6,10 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const $ = (s, r = document) => r.querySelector(s);
 
 const state = { reportId: null, tl: { zoom: 70, days: null, scroll: null, atEnd: true }, page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [], zones: [], zoneId: null, devices: [] };
+/* In the Pont Admin app the sign-in is kept in the app's own storage (the server gives that token a week); in a browser it ends with the tab. */
+const tokenStore = () => (window.PontNative ? localStorage : sessionStorage);
 let token = null;
-try { token = sessionStorage.getItem('pont-token'); } catch {}
+try { token = tokenStore().getItem('pont-token'); } catch {}
 let liveState = 'off';   // off | connecting | live | waiting | offline
 const LIVE_LABELS = { connecting: 'Connecting…', live: 'Live', waiting: 'Update waiting', offline: 'Offline, retrying…' };
 
@@ -26,7 +28,7 @@ async function api(method, path, body) {
 }
 function signOut() {
   disconnectLive();
-  token = null; try { sessionStorage.removeItem('pont-token'); } catch {}
+  token = null; try { sessionStorage.removeItem('pont-token'); localStorage.removeItem('pont-token'); } catch {}
   photoCache.clear(); render();
 }
 
@@ -539,9 +541,9 @@ root.addEventListener('submit', async e => {
   if (f.id === 'login') {
     const fd = new FormData(f);
     try {
-      const r = await api('POST', '/auth/login', { email: fd.get('email'), password: fd.get('password') });
+      const r = await api('POST', '/auth/login', { email: fd.get('email'), password: fd.get('password'), remember: !!window.PontNative });
       if (r.user.role !== 'admin') { state.loginError = 'This account is for the terminal app. Sign in with an admin account.'; return render(); }
-      token = r.token; try { sessionStorage.setItem('pont-token', token); } catch {}
+      token = r.token; try { tokenStore().setItem('pont-token', token); } catch {}
       state.loginError = ''; state.page = 'cards'; await refresh(); connectLive();
     } catch (err) { state.loginError = err.message; render(); }
   } else if (f.id === 'rules') {

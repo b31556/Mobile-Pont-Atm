@@ -12,6 +12,37 @@ describe('staff auth', () => {
     expect(typeof res.json().token).toBe('string');
   });
 
+  it('a token lasts 12 hours, or a week when an admin asks to be remembered', async () => {
+    const { app, db } = await makeApp();
+    const lifetime = async (payload: object) => {
+      const res = await app.inject({ method: 'POST', url: '/auth/login', payload });
+      const p = app.jwt.decode<{ iat: number; exp: number }>(res.json().token)!;
+      return p.exp - p.iat;
+    };
+    const admin = { email: 'admin@pont.example', password: 'adminpass' };
+    expect(await lifetime(admin)).toBe(12 * 3600);
+    expect(await lifetime({ ...admin, remember: false })).toBe(12 * 3600);
+    expect(await lifetime({ ...admin, remember: 'yes' })).toBe(12 * 3600);
+    expect(await lifetime({ ...admin, remember: 1 })).toBe(12 * 3600);
+    expect(await lifetime({ ...admin, remember: true })).toBe(7 * 24 * 3600);
+    // an operator on a paired phone never gets the long one
+    const op = await makeOperator(app, db);
+    const res = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'eszter@pont.example', password: 'pw123456', terminalToken: op.terminalToken, remember: true } });
+    expect(res.statusCode).toBe(200);
+    const p = app.jwt.decode<{ iat: number; exp: number }>(res.json().token)!;
+    expect(p.exp - p.iat).toBe(12 * 3600);
+  });
+
+  it('a remembered token stops working when the password changes', async () => {
+    const { app, db, adminToken } = await makeApp();
+    const res = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@pont.example', password: 'adminpass', remember: true } });
+    const long = res.json().token as string;
+    expect((await app.inject({ method: 'GET', url: '/staff', headers: auth(long) })).statusCode).toBe(200);
+    db.prepare("update staff set token_version=token_version+1 where email='admin@pont.example'").run();
+    expect((await app.inject({ method: 'GET', url: '/staff', headers: auth(long) })).statusCode).toBe(401);
+    void adminToken;
+  });
+
   it('wrong password returns 401', async () => {
     const { app } = await makeApp();
     const res = await app.inject({ method: 'POST', url: '/auth/login', payload: { email: 'admin@pont.example', password: 'nope' } });
