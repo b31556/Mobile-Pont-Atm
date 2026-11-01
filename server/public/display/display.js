@@ -6,7 +6,8 @@
   const $ = id => document.getElementById(id);
   const stage = $('stage'), idle = $('idle'), result = $('result'), entry = $('entry');
 
-  let state = { name: '', beep: false };
+  let state = { name: '', beep: false, canCancel: false };
+  const CANCEL_HOLD_MS = 12000;      // a result that can be cancelled stays up long enough to press the button
   let soundWanted = true;          // this screen's own switch; the admin's setting decides whether the button exists
   let audio = null;
   let holdTimer = null;
@@ -94,8 +95,12 @@
       bal.replaceChildren(document.createTextNode('Balance '), Object.assign(document.createElement('b'), { textContent: String(e.balance) }), document.createTextNode(e.balance === 1 ? ' point' : ' points'));
     }
     document.title = e.headline;
+    // A Cancel button only when the admin switched it on for this reader and the screen shows something that can be undone.
+    const cancel = $('cancel'), canNow = !!(state.canCancel && e.ref);
+    cancel.hidden = !canNow; cancel.disabled = false; cancel.dataset.seq = String(e.seq);
+    $('cancel-note').textContent = '';
     beep(e.sound);
-    holdTimer = setTimeout(showIdle, HOLD_MS);
+    holdTimer = setTimeout(showIdle, canNow ? Math.max(HOLD_MS, CANCEL_HOLD_MS) : HOLD_MS);
   }
   function initial(text) { const s = document.createElement('span'); s.textContent = (text || '?').trim().slice(0, 1).toUpperCase(); return s; }
 
@@ -108,6 +113,21 @@
     if (stage.dataset.state === 'idle') showIdle();
     updateSoundButton();
   }
+
+  $('cancel').addEventListener('click', async () => {
+    const button = $('cancel'), note = $('cancel-note');
+    button.disabled = true; note.textContent = '';
+    clearTimeout(holdTimer);
+    try {
+      const r = await fetch('/display/cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ seq: Number(button.dataset.seq) }), credentials: 'same-origin' });
+      if (r.ok) return;          // the server now shows a "Cancelled" notice of its own, which arrives like any other tap
+      const body = await r.json().catch(() => ({}));
+      note.textContent = body.error || 'It could not be cancelled.';
+      if (r.status === 401) showEntry('This screen was signed out. Enter the code again.');
+    } catch { note.textContent = 'Can’t reach the server.'; }
+    button.disabled = false;
+    holdTimer = setTimeout(showIdle, CANCEL_HOLD_MS);
+  });
 
   /* ---------- the code ---------- */
   const note = text => { $('entry-note').textContent = text || ''; };

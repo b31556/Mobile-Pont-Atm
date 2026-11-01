@@ -29,11 +29,11 @@ export function registerFixed(app: FastifyInstance) {
     return { lastAtMs: all.last ? Date.parse(all.last) : null, uses24h: day.n, points24h: day.pts, usesTotal: all.n, oldestInWindowMs: day.oldest ? Date.parse(day.oldest) : null };
   }
 
-  function view(action: string, card: CardRow, s: FixedSettings, st: FixedStats, extra: { points?: number; balanceBefore?: number; retryInSeconds?: number | null } = {}): Reply {
+  function view(action: string, card: CardRow, s: FixedSettings, st: FixedStats, extra: { points?: number; balanceBefore?: number; retryInSeconds?: number | null; transactionId?: number } = {}): Reply {
     return { status: 200, body: {
       action,
       card: { id: card.id, name: card.name, photoUrl: photoUrl(card.id), balance: card.balance },
-      points: extra.points ?? 0, balanceBefore: extra.balanceBefore ?? card.balance, retryInSeconds: extra.retryInSeconds ?? null,
+      points: extra.points ?? 0, transactionId: extra.transactionId, balanceBefore: extra.balanceBefore ?? card.balance, retryInSeconds: extra.retryInSeconds ?? null,
       limits: { uses24h: st.uses24h, maxUses24h: s.maxUses24h, points24h: st.points24h, maxPoints24h: s.maxPoints24h, usesTotal: st.usesTotal, maxUsesTotal: s.maxUsesTotal },
     } };
   }
@@ -44,10 +44,10 @@ export function registerFixed(app: FastifyInstance) {
     const settings = fixedOf(term);
 
     // The same tap arriving twice (a lost reply, then a retry) gives the same answer and grants once.
-    const prior = db.prepare("select * from transactions where terminal_id=? and idempotency_key=? and kind='fixed'").get(terminalId, key) as { card_id: string; amount: number; balance_after: number } | undefined;
+    const prior = db.prepare("select * from transactions where terminal_id=? and idempotency_key=? and kind='fixed'").get(terminalId, key) as { id: number; card_id: string; amount: number; balance_after: number } | undefined;
     if (prior) {
       const card = db.prepare('select * from cards where id=?').get(prior.card_id) as CardRow;
-      return { ...view('granted', { ...card, balance: prior.balance_after }, settings, statsFor(card.id, terminalId, Date.now()), { points: prior.amount, balanceBefore: prior.balance_after - prior.amount }), replayed: true };
+      return { ...view('granted', { ...card, balance: prior.balance_after }, settings, statsFor(card.id, terminalId, Date.now()), { points: prior.amount, balanceBefore: prior.balance_after - prior.amount, transactionId: prior.id }), replayed: true };
     }
 
     const uid = normalizeUid(uidInput);
@@ -66,11 +66,11 @@ export function registerFixed(app: FastifyInstance) {
     const iso = now.toISOString();
     const after = card.balance + settings.amount;
     db.prepare('update cards set balance=?, last_used=? where id=?').run(after, iso, card.id);
-    db.prepare(`insert into transactions(card_id,amount,type,status,terminal_id,operator_id,idempotency_key,created_at,balance_after,kind)
-      values(?,?,'give','ok',?,NULL,?,?,?,'fixed')`).run(card.id, settings.amount, terminalId, key, iso, after);
+    const txId = Number(db.prepare(`insert into transactions(card_id,amount,type,status,terminal_id,operator_id,idempotency_key,created_at,balance_after,kind)
+      values(?,?,'give','ok',?,NULL,?,?,?,'fixed')`).run(card.id, settings.amount, terminalId, key, iso, after).lastInsertRowid);
     return view('granted', { ...card, balance: after }, settings,
       { ...st, uses24h: st.uses24h + 1, points24h: st.points24h + settings.amount, usesTotal: st.usesTotal + 1 },
-      { points: settings.amount, balanceBefore: card.balance });
+      { points: settings.amount, balanceBefore: card.balance, transactionId: txId });
   });
 
   app.post('/fixed/tap', { preHandler: app.requireOperator }, async (req, reply) => {

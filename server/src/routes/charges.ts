@@ -2,19 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { stamp } from '../clock.js';
 import { normalizeUid } from '../uid.js';
 import { cardJson, findCardByUid, type CardRow } from './cards.js';
-import { publishTap } from './display.js';
-
-interface TxRow {
-  id: number; card_id: string; amount: number; type: 'give' | 'storno'; status: 'ok' | 'stornoed';
-  ref: number | null; terminal_id: string | null; operator_id: string | null;
-  idempotency_key: string | null; created_at: string; balance_after: number;
-}
+import { publishCancelled, publishTap } from './display.js';
+import { Refusal, stornoTransaction, type TxRow } from '../storno.js';
 
 const HOUR_MS = 3600 * 1000;
-
-class Refusal extends Error {
-  constructor(public status: number, public code: string, message: string, public extra: object = {}) { super(message); }
-}
 
 export function registerCharges(app: FastifyInstance) {
   const db = app.db;
@@ -49,22 +40,6 @@ export function registerCharges(app: FastifyInstance) {
     const id = db.prepare(`insert into transactions(card_id,amount,type,status,terminal_id,operator_id,idempotency_key,created_at,balance_after)
       values(?,?,'give','ok',?,?,?,?,?)`).run(card.id, amount, terminalId, operatorId, key, now, after).lastInsertRowid;
     return { tx: db.prepare('select * from transactions where id=?').get(id) as TxRow, card: { ...card, balance: after, last_used: now } as CardRow, before: card.balance, replayed: false };
-  });
-
-  const storno = db.transaction((id: number, user: { id: string; role: string; terminalId?: string; viaTerminal?: boolean }) => {
-    const orig = db.prepare('select * from transactions where id=?').get(id) as TxRow | undefined;
-    if (!orig) throw new Refusal(404, 'not_found', 'Transaction not found');
-    if (user.role === 'operator' && orig.terminal_id !== user.terminalId) throw new Refusal(403, 'other_terminal', 'That charge was made on another terminal');
-    if (orig.type !== 'give') throw new Refusal(400, 'not_a_charge', 'Only charges can be stornoed');
-    if (orig.status === 'stornoed') throw new Refusal(400, 'already_stornoed', 'Already stornoed.');
-    const card = db.prepare('select * from cards where id=?').get(orig.card_id) as CardRow;
-    if (card.balance < orig.amount) throw new Refusal(400, 'would_go_negative', 'Card has fewer points than this storno.');
-    const after = card.balance - orig.amount;
-    db.prepare('update cards set balance=? where id=?').run(after, card.id);
-    db.prepare("update transactions set status='stornoed' where id=?").run(id);
-    const rid = db.prepare(`insert into transactions(card_id,amount,type,status,ref,terminal_id,operator_id,created_at,balance_after)
-      values(?,?,'storno','ok',?,?,?,?,?)`).run(card.id, -orig.amount, id, user.terminalId ?? orig.terminal_id, user.viaTerminal ? null : user.id, stamp().toISOString(), after).lastInsertRowid;
-    return { tx: db.prepare('select * from transactions where id=?').get(rid) as TxRow, card: { ...card, balance: after } as CardRow };
   });
 
   app.setErrorHandler((err, _req, reply) => {
@@ -116,7 +91,8 @@ export function registerCharges(app: FastifyInstance) {
   });
 
   app.post('/transactions/:id/storno', { preHandler: app.requireStaff }, async req => {
-    const r = storno(Number((req.params as { id: string }).id), req.user);
+    const r = stornoTransaction(db, Number((req.params as { id: string }).id), req.user);
+    if (req.user.terminalId) publishCancelled(app, req.user.terminalId, r.card, `The charge was cancelled: ${Math.abs(r.tx.amount)} points taken back.`);   // the screen next to the reader says so too
     return { transaction: txJson(r.tx), card: cardInfo(r.card, r.card.balance + -r.tx.amount) };
   });
 }

@@ -121,6 +121,7 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'devices', 'denied_at', 'text');
   ensureColumn(db, 'terminals', 'display_token', 'text');
   ensureColumn(db, 'terminals', 'display_beep', 'integer not null default 0');
+  ensureColumn(db, 'terminals', 'display_cancel', 'integer not null default 0');   // may the display page next to this reader cancel what it shows?
   ensureColumn(db, 'terminals', 'display_code', 'text');
   ensureColumn(db, 'terminals', 'charge_limit_hour', 'integer default 5000');   // null = no limit
   db.exec('create unique index if not exists terminals_display_token on terminals(display_token) where display_token is not null');

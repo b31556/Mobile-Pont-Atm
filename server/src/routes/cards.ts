@@ -6,6 +6,7 @@ import type { Db } from '../db.js';
 import { stamp } from '../clock.js';
 import { normalizeUid } from '../uid.js';
 import { avatarSvg, STYLES } from '../avatar.js';
+import { cardReport } from '../report.js';
 
 export interface CardRow {
   id: string; name: string; uid: string; balance: number; status: 'active' | 'blocked';
@@ -191,6 +192,13 @@ export function registerCards(app: FastifyInstance, dataDir: string) {
     writeFileSync(join(dataDir, path), data);
     db.prepare('update cards set photo_path=? where id=?').run(path, id);
     return cardJson(get(id)!);
+  });
+
+  /** Everything that happened to one card, for the admin's report page: visits, grants, refunds, adjustments and totals. */
+  app.get('/cards/:id/report', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const report = cardReport(db, (req.params as { id: string }).id);
+    if (!report) return reply.code(404).send({ error: 'Card not found' });
+    return reply.header('cache-control', 'no-store').send(report);
   });
 
   app.get('/cards/:id/photo', { preHandler: app.requireStaff }, async (req, reply) => {

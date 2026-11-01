@@ -121,6 +121,10 @@ static void testCheckInPlans() {
   // fixed-amount mode still shows the balance after a grant, and after "too soon" or a limit
   CHECK(planFor("granted", false).showBalance); CHECK(planFor("cooldown", false).showBalance); CHECK(planFor("limit_uses", false).showBalance);
   CHECK(planFor("cooldown").showBalance);                              // the default is fixed-amount mode
+  // a sign-in that cancelled a visit elsewhere: the warning word first, then "In", no balance
+  CHECK(std::strcmp(planDiscarded().word, "dISC") == 0); CHECK(std::strcmp(planDiscarded().word2, "In") == 0);
+  CHECK(!planDiscarded().showBalance); CHECK(planDiscarded().kind == Kind::Refused);
+  CHECK(std::strcmp(planFor("in", true).word2, "") == 0); CHECK(std::strcmp(planFor("granted").word2, "") == 0);   // other plans have no second word
   // an info kiosk: just the balance, after every tap, and in any mode flag
   CHECK(planFor("info").showBalance); CHECK(planFor("info").word[0] == '\0'); CHECK(planFor("info").kind == Kind::Good); CHECK(!planFor("info").blink);
   CHECK(planFor("info", false).showBalance);
@@ -178,6 +182,11 @@ static void testQueuePlan() {
   q.clear(); queuePlan(q, planFor("out", true), 70);
   CHECK(stepCount(q, &total, first) == 2); CHECK(total >= WORD_MS + BALANCE_MS);
   // too soon in fixed-amount mode: the word, then the balance; in check-in mode just the word
+  q.clear(); queuePlan(q, planDiscarded(), 120); CHECK(stepCount(q, &total, first) == 2);                                      // two steps and never a balance
+  { uint8_t a[4], b[4], c[4]; q.clear(); queuePlan(q, planDiscarded(), 120);
+    CHECK(q.tick(0, a)); CHECK_SEG(a, 0x5E, 0x06, 0x6D, 0x39);                                                               // "dISC" ...
+    CHECK(q.tick(WORD_MS + 1, b)); CHECK_SEG(b, 0x06, 0x54, 0, 0);                                                           // ... then "In"
+    CHECK(!q.tick(2 * WORD_MS + 2, c)); }                                                                                    // and nothing after
   q.clear(); queuePlan(q, planFor("info"), 56); CHECK(stepCount(q, &total, first) == 1); CHECK_SEG(first, 0, 0, 0x6D, 0x7D);   // an info tap shows "  56" and nothing else
   q.clear(); queuePlan(q, planFor("info"), 0); CHECK(stepCount(q, &total, first) == 1); CHECK_SEG(first, 0, 0, 0, 0x3F);       // a card with no points shows 0
   q.clear(); queuePlan(q, planFor("info"), 123456); CHECK(stepCount(q, &total, first) == scrollPositions(6));              // a long balance scrolls

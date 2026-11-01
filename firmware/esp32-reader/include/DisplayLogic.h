@@ -95,6 +95,7 @@ struct Plan {
   bool showBalance;
   Kind kind;
   bool blink;
+  const char* word2 = "";   // an optional second word after the first ("" = none)
 };
 
 /**
@@ -129,6 +130,12 @@ inline Plan planFor(const char* action, bool checkInMode = false) {
   }
   return {"Err", false, Kind::Error, false};
 }
+
+/**
+ * Signing in at one zone while still signed in at another cancels the first visit (no points for it). The person is signed in, so
+ * the display says "In", but first it warns with "dISC" (discarded) so nobody walks away thinking the old visit still counts.
+ */
+inline Plan planDiscarded() { return {"dISC", false, Kind::Refused, false, "In"}; }
 
 /** The words for a refusal that comes as an HTTP error. A status of 0 means no answer arrived at all. */
 inline Plan planForHttp(int status, const char* code) {
@@ -224,6 +231,7 @@ inline void queuePlan(StepQueue& q, const Plan& plan, long balance) {
     if (plan.blink) for (int i = 0; i < 3; i++) { q.push(seg, BLINK_ON_MS); q.push(blank, BLINK_OFF_MS); }
     else q.push(seg, WORD_MS);
   }
+  if (plan.word2[0]) { textToSegments(plan.word2, seg); q.push(seg, WORD_MS); }
   if (!plan.showBalance || balance < 0) return;
   if (fitsOnDisplay(balance)) { numberToSegments(balance, seg); q.push(seg, BALANCE_MS); return; }
   char digits[24];

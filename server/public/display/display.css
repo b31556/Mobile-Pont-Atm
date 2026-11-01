@@ -52,3 +52,8 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:2vmin;m
 .entry button{font:inherit;font-size:clamp(20px,4vmin,48px);font-weight:700;color:#12202B;background:#F5B31F;border:0;border-radius:2vmin;padding:0 1.4em;cursor:pointer}
 .entry button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .note{min-height:1.6em;font-size:clamp(16px,3vmin,36px);font-weight:600;color:#FFD08A}
+
+.cancelbtn{margin-top:3vmin;font-family:inherit;font-weight:700;font-size:clamp(18px,3vmin,30px);color:inherit;background:transparent;border:2px solid currentColor;border-radius:999px;padding:1.2vmin 4vmin;cursor:pointer;opacity:.85}
+.cancelbtn:hover{opacity:1;background:#ffffff22}
+.cancelbtn:disabled{opacity:.4;cursor:wait}
+.cancel-note{margin-top:1.5vmin;min-height:1.4em;font-size:clamp(14px,2.2vmin,24px);font-weight:600}

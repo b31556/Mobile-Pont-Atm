@@ -3,7 +3,8 @@ import type { Db } from '../db.js';
 import { stamp } from '../clock.js';
 import { normalizeUid } from '../uid.js';
 import { findCardByUid, type CardRow } from './cards.js';
-import { publishTap } from './display.js';
+import { publishCancelled, publishTap } from './display.js';
+import type { Canceller } from '../storno.js';
 import { recordSuggestion } from './suggestions.js';
 import { computePoints, createZone, defaultZone, getZone, listZones, updateZone, validateSettings, DEFAULT_SETTINGS, type Zone } from '../presence.js';
 
@@ -51,6 +52,71 @@ function checkOut(db: Db, s: SessionRow, card: CardRow, zone: Zone, now: Date, t
   return db.prepare('select * from presence_sessions where id=?').get(s.id) as SessionRow;
 }
 
+/**
+ * Closes an open visit for an admin (or "everyone in this zone"): with [award] it pays like a normal check-out, unless the visit
+ * lasted longer than the zone's longest stay (that earns nothing, as at a terminal); without it the visit is discarded, no points.
+ */
+export function closeOpenVisit(db: Db, s: SessionRow, award: boolean, now: Date): { points: number; overdue: boolean } {
+  const zone = (s.zone_id ? getZone(db, s.zone_id) : undefined) ?? defaultZone(db);
+  const minutes = Math.max(0, Math.floor((now.getTime() - Date.parse(s.in_at)) / 60000));
+  if (award && minutes > zone.settings.maxStayHours * 60) {
+    db.prepare("update presence_sessions set status='expired', out_at=?, minutes=?, points=0 where id=?").run(now.toISOString(), minutes, s.id);
+    return { points: 0, overdue: true };
+  }
+  if (award) return { points: checkOut(db, s, db.prepare('select * from cards where id=?').get(s.card_id) as CardRow, zone, now, null, null).points, overdue: false };
+  db.prepare("update presence_sessions set status='discarded', out_at=?, minutes=?, points=0 where id=?").run(now.toISOString(), minutes, s.id);
+  return { points: 0, overdue: false };
+}
+
+/**
+ * Cancels a check-in (the visit is discarded, no points) or a check-out (the points are taken back and the visit is open again, as if
+ * the card had not tapped out). An operator may only cancel what happened at its own terminal; an admin anything.
+ * [expect] says what the caller means to cancel; if the visit is no longer like that (a double tap, someone else got there first)
+ * nothing happens, so cancelling a check-out twice can never go on to discard the reopened visit.
+ */
+export function cancelVisit(db: Db, id: number, who: Canceller, expect: 'in' | 'out'): { status: number; body: object } {
+  return db.transaction((): { status: number; body: object } => {
+    const s = db.prepare('select * from presence_sessions where id=?').get(id) as SessionRow | undefined;
+    if (!s) return { status: 404, body: { error: 'Visit not found', code: 'not_found' } };
+    const zone = (s.zone_id ? getZone(db, s.zone_id) : undefined) ?? defaultZone(db);
+    const card = db.prepare('select * from cards where id=?').get(s.card_id) as CardRow;
+    const mine = (terminal: string | null) => who.role !== 'operator' || terminal === who.terminalId;
+    const answer = (action: string, balance: number, points: number) => ({ status: 200, body: {
+      action, points, card: { id: card.id, name: card.name, photoUrl: photoUrl(card.id), balance }, zone: { id: zone.id, name: zone.name },
+    } });
+    const now = stamp();
+
+    const changed = { status: 409, body: { error: 'That visit has changed since, so nothing was cancelled.', code: 'state_changed' } };
+    if (s.status === 'open') {
+      if (expect !== 'in') return changed;
+      if (!mine(s.in_terminal)) return { status: 403, body: { error: 'That check-in was made on another terminal', code: 'other_terminal' } };
+      const minutes = Math.max(0, Math.floor((now.getTime() - Date.parse(s.in_at)) / 60000));
+      db.prepare("update presence_sessions set status='discarded', out_at=?, minutes=?, points=0 where id=?").run(now.toISOString(), minutes, s.id);
+      return answer('cancelled_in', card.balance, 0);
+    }
+    if (s.status === 'closed') {
+      if (expect !== 'out') return changed;
+      if (!mine(s.out_terminal)) return { status: 403, body: { error: 'That check-out was made on another terminal', code: 'other_terminal' } };
+      if (db.prepare("select 1 from presence_sessions where card_id=? and status='open'").get(s.card_id)) {
+        return { status: 409, body: { error: 'This card has checked in somewhere else since, so that visit cannot be reopened.', code: 'inside_elsewhere' } };
+      }
+      let balance = card.balance;
+      if (s.points > 0 && s.tx_id) {
+        if (card.balance < s.points) return { status: 400, body: { error: 'Card has fewer points than this check-out paid.', code: 'would_go_negative' } };
+        balance = card.balance - s.points;
+        db.prepare('update cards set balance=? where id=?').run(balance, card.id);
+        db.prepare("update transactions set status='stornoed' where id=?").run(s.tx_id);
+        db.prepare(`insert into transactions(card_id,amount,type,status,ref,terminal_id,operator_id,created_at,balance_after,note,zone_id)
+          values(?,?,'storno','ok',?,?,?,?,?,?,?)`).run(card.id, -s.points, s.tx_id, who.terminalId ?? s.out_terminal, who.viaTerminal ? null : who.id, now.toISOString(), balance, 'Check-out cancelled', zone.id);
+      }
+      db.prepare(`update presence_sessions set status='open', out_at=NULL, out_terminal=NULL, out_key=NULL, minutes=NULL, points=0, raw=0,
+        capped_by=NULL, day_total=0, balance_after=NULL, tx_id=NULL where id=?`).run(s.id);
+      return answer('cancelled_out', balance, s.points);
+    }
+    return { status: 400, body: { error: 'Nothing to cancel: that visit was not an ordinary check-in or check-out.', code: 'nothing_to_cancel' } };
+  })();
+}
+
 export function registerPresence(app: FastifyInstance) {
   const db = app.db;
   const terminalName = (id: string | null) => id ? (db.prepare('select name from terminals where id=?').get(id) as { name: string } | undefined)?.name ?? '' : '';
@@ -62,7 +128,7 @@ export function registerPresence(app: FastifyInstance) {
   function view(action: string, s: SessionRow | null, card: CardRow, zone: Zone, extra: object = {}): Reply {
     const closed = action === 'out';
     return { status: 200, body: {
-      action,
+      action, sessionId: s?.id,
       card: { id: card.id, name: card.name, photoUrl: photoUrl(card.id), balance: closed && s ? s.balance_after ?? card.balance : card.balance },
       zone: { id: zone.id, name: zone.name },
       inAt: s?.in_at, outAt: s?.out_at ?? undefined, minutes: s?.minutes ?? undefined,
@@ -79,7 +145,11 @@ export function registerPresence(app: FastifyInstance) {
 
     // The same tap arriving twice (a lost reply, then a retry) must give the same answer and change nothing.
     const byIn = db.prepare('select * from presence_sessions where in_terminal=? and in_key=?').get(terminalId, key) as SessionRow | undefined;
-    if (byIn) return { ...view(byIn.expired_minutes !== null ? 'expired_in' : 'in', byIn, cardById(byIn.card_id), zoneOf(byIn), byIn.expired_minutes !== null ? { expiredMinutes: byIn.expired_minutes } : {}), replayed: true };
+    if (byIn) {
+      const dropped = db.prepare("select * from presence_sessions where out_terminal=? and out_key=? and status='discarded'").get(terminalId, key) as SessionRow | undefined;
+      const extra = byIn.expired_minutes !== null ? { expiredMinutes: byIn.expired_minutes } : dropped ? { discarded: { zone: zoneOf(dropped).name, minutes: dropped.minutes ?? 0 } } : {};
+      return { ...view(byIn.expired_minutes !== null ? 'expired_in' : 'in', byIn, cardById(byIn.card_id), zoneOf(byIn), extra), replayed: true };
+    }
     const byOut = db.prepare('select * from presence_sessions where out_terminal=? and out_key=?').get(terminalId, key) as SessionRow | undefined;
     if (byOut) return {
       ...(byOut.status === 'expired'
@@ -107,6 +177,13 @@ export function registerPresence(app: FastifyInstance) {
     const visitZone = zoneOf(open);
     const rules = visitZone.settings;
     const ageSeconds = (now.getTime() - Date.parse(open.in_at)) / 1000;
+    // Tapping in (or at a toggle point) of ANOTHER zone while still inside one: nobody is in two places, so the old visit is discarded
+    // (no points for it) and the card is signed into this zone. The answer says so, so the person and the staff are warned.
+    if (visitZone.id !== here.id && term.direction !== 'out' && ageSeconds <= rules.maxStayHours * 3600) {
+      const minutes = Math.floor(ageSeconds / 60);
+      db.prepare("update presence_sessions set status='discarded', out_at=?, out_terminal=?, out_key=?, minutes=?, points=0 where id=?").run(now.toISOString(), terminalId, key, minutes, open.id);
+      return view('in', openSession(db, card.id, here.id, terminalId, key, now.toISOString(), null), card, here, { discarded: { zone: visitZone.name, minutes } });
+    }
     if (ageSeconds < rules.cooldownSeconds) return view('cooldown', open, card, visitZone);
     if (ageSeconds > rules.maxStayHours * 3600) {
       const minutes = Math.floor(ageSeconds / 60);
@@ -234,20 +311,39 @@ export function registerPresence(app: FastifyInstance) {
     const award = (req.body as { award?: unknown } | undefined)?.award === true;
     const result = db.transaction(() => {
       const s = db.prepare("select * from presence_sessions where id=? and status='open'").get(id) as SessionRow | undefined;
-      if (!s) return null;
-      const now = stamp();
-      const zone = zoneOf(s);
-      const minutes = Math.max(0, Math.floor((now.getTime() - Date.parse(s.in_at)) / 60000));
-      // The same rule as at a terminal: a visit longer than the zone's longest stay earns nothing, even when an admin closes it.
-      if (award && minutes > zone.settings.maxStayHours * 60) {
-        db.prepare("update presence_sessions set status='expired', out_at=?, minutes=?, points=0 where id=?").run(now.toISOString(), minutes, id);
-        return 0;
-      }
-      if (award) return checkOut(db, s, cardById(s.card_id), zone, now, null, null).points;
-      db.prepare("update presence_sessions set status='discarded', out_at=?, minutes=?, points=0 where id=?").run(now.toISOString(), minutes, id);
-      return 0;
+      return s ? closeOpenVisit(db, s, award, stamp()).points : null;
     })();
     if (result === null) return reply.code(404).send({ error: 'No open visit with that id' });
     return { ok: true, points: result };
+  });
+
+  /** Undo a check-in or a check-out (see cancelVisit). For a phone: the one it just did; for an admin: any. */
+  app.post('/presence/sessions/:id/cancel', { preHandler: app.requireStaff }, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const expect = (req.body as { expect?: unknown } | undefined)?.expect;
+    if (expect !== 'in' && expect !== 'out') return reply.code(400).send({ error: 'Say what to cancel: expect must be "in" (a check-in) or "out" (a check-out)', code: 'bad_request' });
+    const r = cancelVisit(db, id, { id: req.user.id, role: req.user.role, terminalId: req.user.terminalId, viaTerminal: req.user.viaTerminal }, expect);
+    if (r.status === 200 && req.user.terminalId) {   // the screen next to the reader says so too
+      const b = r.body as { card: { id: string; name: string }; action: string };
+      publishCancelled(app, req.user.terminalId, b.card, b.action === 'cancelled_in' ? 'The check-in was cancelled.' : 'The check-out was cancelled: the points were taken back.');
+    }
+    return reply.code(r.status).send(r.body);
+  });
+
+  /** Everyone who is inside one zone: signed out (paid like a normal check-out) or discarded (no points), in one go. */
+  app.post('/zones/:id/close-all', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const zone = getZone(db, id);
+    if (!zone) return reply.code(404).send({ error: 'Zone not found' });
+    const award = (req.body as { award?: unknown } | undefined)?.award === true;
+    const isDefault = defaultZone(db).id === id;
+    const done = db.transaction(() => {
+      const open = db.prepare(`select * from presence_sessions where status='open' and (zone_id=? ${isDefault ? 'or zone_id is null' : ''}) order by id`).all(id) as SessionRow[];
+      const now = stamp();
+      let points = 0, overdue = 0;
+      for (const s of open) { const r = closeOpenVisit(db, s, award, now); points += r.points; if (r.overdue) overdue++; }
+      return { closed: open.length, points, overdue };
+    })();
+    return { ok: true, ...done };
   });
 }

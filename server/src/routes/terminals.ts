@@ -33,7 +33,7 @@ export function registerTerminals(app: FastifyInstance) {
       return {
         id: t.id, name: t.name, place: t.place, lastSeen: t.last_seen, appVersion: t.app_version, device: t.device,
         online: !!t.last_seen && Date.now() - Date.parse(t.last_seen) < ONLINE_WINDOW_MS,
-        givenToday: given.s, operator: t.last_operator ?? '', mode: t.mode, direction: t.direction, kind: t.kind, fixed: fixedOf(t), displayCode: displayCodeFor(db, t.id), displayBeep: !!t.display_beep, chargeLimitHour: t.charge_limit_hour ?? null,
+        givenToday: given.s, operator: t.last_operator ?? '', mode: t.mode, direction: t.direction, kind: t.kind, fixed: fixedOf(t), displayCode: displayCodeFor(db, t.id), displayBeep: !!t.display_beep, displayCancel: !!t.display_cancel, chargeLimitHour: t.charge_limit_hour ?? null,
         ip: t.kind === 'device' ? (db.prepare('select ip from devices where terminal_id=?').get(t.id) as { ip: string | null } | undefined)?.ip ?? null : null,
         firmware: t.kind === 'device' ? (db.prepare('select firmware from devices where terminal_id=?').get(t.id) as { firmware: string | null } | undefined)?.firmware ?? null : null,
         zoneId: t.zone_id ?? null, zoneName: t.zone_id ? (db.prepare('select name from zones where id=?').get(t.zone_id) as { name: string } | undefined)?.name ?? null : null,
@@ -89,7 +89,7 @@ export function registerTerminals(app: FastifyInstance) {
 
   app.patch('/terminals/:id', { preHandler: app.requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = (req.body ?? {}) as { name?: string; place?: string; mode?: string; zoneId?: string; direction?: string; fixed?: unknown; displayBeep?: unknown; chargeLimitHour?: unknown };
+    const b = (req.body ?? {}) as { name?: string; place?: string; mode?: string; zoneId?: string; direction?: string; fixed?: unknown; displayBeep?: unknown; displayCancel?: unknown; chargeLimitHour?: unknown };
     const t = db.prepare('select zone_id, kind from terminals where id=? and active=1').get(id) as { zone_id: string | null; kind: string } | undefined;
     if (!t) return reply.code(404).send({ error: 'Terminal not found' });
     if (b.mode !== undefined) {
@@ -97,6 +97,7 @@ export function registerTerminals(app: FastifyInstance) {
       if (!allowed.includes(b.mode)) return reply.code(400).send({ error: t.kind === 'device' ? 'A reader can be in check-in (presence), fixed-amount or info kiosk mode' : 'A phone can be in ATM, check-in (presence) or info kiosk mode' });
     }
     if (b.displayBeep !== undefined && typeof b.displayBeep !== 'boolean') return reply.code(400).send({ error: 'displayBeep must be true or false' });
+    if (b.displayCancel !== undefined && typeof b.displayCancel !== 'boolean') return reply.code(400).send({ error: 'displayCancel must be true or false' });
     if (b.chargeLimitHour !== undefined) {
       if (t.kind !== 'phone') return reply.code(400).send({ error: 'Only phones have an hourly points limit' });
       const v = b.chargeLimitHour;
@@ -122,6 +123,7 @@ export function registerTerminals(app: FastifyInstance) {
       vals.push(fixed.amount, fixed.cooldownSeconds, fixed.maxUses24h, fixed.maxPoints24h, fixed.maxUsesTotal);
     }
     if (b.displayBeep !== undefined) { set.push('display_beep=?'); vals.push(b.displayBeep ? 1 : 0); }
+    if (b.displayCancel !== undefined) { set.push('display_cancel=?'); vals.push(b.displayCancel ? 1 : 0); }
     if (b.chargeLimitHour !== undefined) { set.push('charge_limit_hour=?'); vals.push(b.chargeLimitHour); }
     if (b.zoneId !== undefined) { set.push('zone_id=?'); vals.push(b.zoneId); }
     else if (b.mode === 'presence' && !t.zone_id) { set.push('zone_id=?'); vals.push(defaultZone(db).id); }

@@ -211,6 +211,8 @@ void present(int httpStatus, const String& answer) {
   reader::Plan plan = (httpStatus == 200 && parsed)
       ? reader::planFor(doc["action"] | "", mode == "presence")
       : reader::planForHttp(httpStatus, parsed ? (doc["code"] | "") : nullptr);
+  // Signed in, but a visit that was still open somewhere else was cancelled by it: warn first.
+  if (httpStatus == 200 && parsed && doc["discarded"].is<JsonObject>() && strcmp(doc["action"] | "", "in") == 0) plan = reader::planDiscarded();
   if (httpStatus == 401) { token = ""; prefs.remove("token"); status = "pending"; lastHelloMs = 0; }   // not accepted any more: ask again
   if (httpStatus == 409) lastHelloMs = 0;                                                            // the mode was changed in admin: learn the new one now
   Serial.printf("tap answer: HTTP %d -> %s\n", httpStatus, plan.word);

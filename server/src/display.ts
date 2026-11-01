@@ -12,6 +12,8 @@ export interface DisplayEvent {
   balance: number | null;        // null = the page shows no balance
   card: { id: string; name: string } | null;
   sound: Sound | null;
+  /** What a Cancel on the display page would undo: a charge (tx) or a check-in/check-out (visit). Only when the answer was a success. */
+  ref?: { type: 'tx' | 'visit'; id: number; expect?: 'in' | 'out' } | null;
 }
 export type NewEvent = Omit<DisplayEvent, 'seq' | 'at'>;
 
@@ -23,12 +25,13 @@ export class DisplayHub {
   private subs = new Map<string, Set<(e: DisplayEvent) => void>>();
   private events = new Map<string, { event: DisplayEvent; atMs: number }[]>();
   private streams = new Map<string, Set<() => void>>();
-  constructor(private now: () => number = Date.now) {}
+  constructor(private clock: () => number = Date.now) {}
+  now(): number { return this.clock(); }
 
   publish(terminalId: string, e: NewEvent): DisplayEvent {
-    const event: DisplayEvent = { ...e, seq: ++this.seq, at: new Date(this.now()).toISOString() };
+    const event: DisplayEvent = { ...e, seq: ++this.seq, at: new Date(this.clock()).toISOString() };
     const list = this.events.get(terminalId) ?? [];
-    list.push({ event, atMs: this.now() });
+    list.push({ event, atMs: this.clock() });
     while (list.length > KEEP) list.shift();
     this.events.set(terminalId, list);
     for (const fn of [...(this.subs.get(terminalId) ?? [])]) { try { fn(event); } catch { /* a closed connection must not stop the others */ } }
@@ -61,6 +64,11 @@ export class DisplayHub {
 
   count(terminalId: string): number { return this.subs.get(terminalId)?.size ?? 0; }
 
+  /** One of the recent events of a terminal, by its number, with when it was made. */
+  find(terminalId: string, seq: number): { event: DisplayEvent; atMs: number } | undefined {
+    return this.events.get(terminalId)?.find(e => e.event.seq === seq);
+  }
+
   last(terminalId: string): DisplayEvent | null {
     const list = this.events.get(terminalId);
     return list && list.length ? list[list.length - 1].event : null;
@@ -68,7 +76,7 @@ export class DisplayHub {
 
   /** Cards that tapped on this terminal in the last hour: the only photos its display page may show. */
   recentCardIds(terminalId: string): Set<string> {
-    const since = this.now() - HOUR_MS;
+    const since = this.clock() - HOUR_MS;
     const ids = new Set<string>();
     for (const { event, atMs } of this.events.get(terminalId) ?? []) if (event.card && atMs >= since) ids.add(event.card.id);
     return ids;
@@ -128,6 +136,7 @@ export function eventFor(r: Answer, mode: 'fixed' | 'presence' | 'atm' | 'info')
   const card = { id: String(c.id), name: String(c.name ?? '') };
   const balance = typeof c.balance === 'number' ? c.balance : null;
   const zone = b.zone?.name ? `Zone: ${b.zone.name}` : null;
+  const refOf = (type: 'tx' | 'visit', id: unknown, expect?: 'in' | 'out') => (typeof id === 'number' ? { type, id, ...(expect ? { expect } : {}) } : null);
   const lines = (...l: (string | null | false)[]) => l.filter((x): x is string => !!x);
 
   if (mode === 'info') {   // an info kiosk: the points big, the latest things that happened below
@@ -138,12 +147,12 @@ export function eventFor(r: Answer, mode: 'fixed' | 'presence' | 'atm' | 'info')
 
   if (mode === 'atm') {
     if (!b.transaction) return null;
-    return { tone: 'good', headline: `+${plural(b.transaction.amount, 'point')}`, details: [], balance, card, sound: 'success' };
+    return { tone: 'good', headline: `+${plural(b.transaction.amount, 'point')}`, details: [], balance, card, sound: 'success', ref: refOf('tx', b.transaction.id) };
   }
 
   if (mode === 'fixed') {
     switch (b.action) {
-      case 'granted': return { tone: 'good', headline: `+${plural(b.points, 'point')}`, details: [], balance, card, sound: 'success' };
+      case 'granted': return { tone: 'good', headline: `+${plural(b.points, 'point')}`, details: [], balance, card, sound: 'success', ref: refOf('tx', b.transactionId) };
       case 'cooldown': return { tone: 'neutral', headline: 'Too soon', details: [`Try again in ${wait(b.retryInSeconds ?? 1)}.`], balance, card, sound: 'refused' };
       case 'limit_uses': return { tone: 'warn', headline: 'Limit reached', details: lines('Taps per day used up.', b.retryInSeconds ? `Try again in ${wait(b.retryInSeconds)}.` : null), balance, card, sound: 'refused' };
       case 'limit_points': return { tone: 'warn', headline: 'Limit reached', details: lines('Daily points limit.', b.retryInSeconds ? `Try again in ${wait(b.retryInSeconds)}.` : null), balance, card, sound: 'refused' };
@@ -153,8 +162,13 @@ export function eventFor(r: Answer, mode: 'fixed' | 'presence' | 'atm' | 'info')
   }
 
   switch (b.action) {   // check-in mode: a balance only after signing out
-    case 'in': return { tone: 'good', headline: 'Checked in', details: lines(zone, `Since ${clock(b.inAt)}`), balance: null, card, sound: 'in' };
-    case 'out': return { tone: 'good', headline: 'Checked out', details: lines(`${duration(b.minutes ?? 0)} inside`, b.points > 0 ? `+${plural(b.points, 'point')}` : 'No points this time', b.cappedBy === 'visit' ? 'Visit limit reached.' : b.cappedBy === '24h' ? 'Daily limit reached.' : null, zone), balance, card, sound: 'out' };
+    case 'in':
+      if (b.discarded) {   // the card was still inside somewhere else: that visit was cancelled, which the person must be told
+        const was = b.discarded.zone ? ` at ${b.discarded.zone}` : '';
+        return { tone: 'warn', headline: 'Checked in', details: lines(`Your visit${was} was cancelled (${duration(b.discarded.minutes ?? 0)}).`, 'No points for it.', zone, `Since ${clock(b.inAt)}`), balance: null, card, sound: 'refused', ref: refOf('visit', b.sessionId, 'in') };
+      }
+      return { tone: 'good', headline: 'Checked in', details: lines(zone, `Since ${clock(b.inAt)}`), balance: null, card, sound: 'in', ref: refOf('visit', b.sessionId, 'in') };
+    case 'out': return { tone: 'good', headline: 'Checked out', details: lines(`${duration(b.minutes ?? 0)} inside`, b.points > 0 ? `+${plural(b.points, 'point')}` : 'No points this time', b.cappedBy === 'visit' ? 'Visit limit reached.' : b.cappedBy === '24h' ? 'Daily limit reached.' : null, zone), balance, card, sound: 'out', ref: refOf('visit', b.sessionId, 'out') };
     case 'cooldown': return { tone: 'neutral', headline: 'Already checked in', details: ['You were just checked in.'], balance: null, card, sound: 'refused' };
     case 'already_in': return { tone: 'neutral', headline: 'Already checked in', details: lines(`Since ${clock(b.inAt)}`, zone, 'Use a sign-out point to check out.'), balance: null, card, sound: 'refused' };
     case 'not_in': return { tone: 'warn', headline: 'Not checked in', details: ['Check in at a sign-in point first.'], balance: null, card, sound: 'refused' };

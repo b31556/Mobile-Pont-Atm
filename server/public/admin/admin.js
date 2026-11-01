@@ -5,7 +5,7 @@ const root = document.getElementById('root');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (s, r = document) => r.querySelector(s);
 
-const state = { page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [], zones: [], zoneId: null, devices: [] };
+const state = { reportId: null, tl: { zoom: 70, days: null, scroll: null, atEnd: true }, page: 'cards', q: '', drawer: null, modal: null, toast: '', loginError: '', data: {}, suggestions: [], zones: [], zoneId: null, devices: [] };
 let token = null;
 try { token = sessionStorage.getItem('pont-token'); } catch {}
 let liveState = 'off';   // off | connecting | live | waiting | offline
@@ -80,6 +80,7 @@ async function load() {
     state.data = { cards, all, tx };
   } else if (p === 'terminals' || p === 'readers') state.data = { terminals: await api('GET', '/terminals') };
   else if (p === 'txns') state.data = { tx: await api('GET', '/transactions?limit=100') };
+  else if (p === 'report') state.data = { report: await api('GET', '/cards/' + state.reportId + '/report') };
   else if (p === 'presence') {
     state.data = { sessions: await api('GET', '/presence/sessions') };
   }
@@ -100,7 +101,7 @@ function loginView() {
 }
 
 function shell(inner) {
-  const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id}">${l}${id === 'cards' && state.suggestions.length ? `<span class="badge" title="Suggested cards">${state.suggestions.length}</span>` : ''}${id === 'readers' && state.devices.some(d => d.status === 'pending') ? `<span class="badge" title="Waiting for approval">${state.devices.filter(d => d.status === 'pending').length}</span>` : ''}</button>`;
+  const item = (id, l) => `<button data-go="${id}" aria-current="${state.page === id || (id === 'cards' && state.page === 'report')}">${l}${id === 'cards' && state.suggestions.length ? `<span class="badge" title="Suggested cards">${state.suggestions.length}</span>` : ''}${id === 'readers' && state.devices.some(d => d.status === 'pending') ? `<span class="badge" title="Waiting for approval">${state.devices.filter(d => d.status === 'pending').length}</span>` : ''}</button>`;
   return `<div class="adm"><aside class="side"><div class="brand"><span class="coin">P</span>Pont admin</div>
     ${item('cards', 'Cards')}${item('terminals', 'Terminals')}${item('readers', 'Readers')}${item('presence', 'Check-in')}${item('txns', 'Transactions')}${item('staff', 'Staff')}
     <div class="me"><div class="live" id="live" data-state="${liveState}" title="Pages update by themselves when something changes">${LIVE_LABELS[liveState] || ''}</div><button data-act="signout">Sign out</button></div></aside>
@@ -116,7 +117,7 @@ function cardsPane() {
   const rows = cards.length ? cards.map(c => `<tr data-act="edit" data-id="${c.id}">
       <td><div class="hold">${avatar(c)}${esc(c.name)}</div></td><td class="mono">${esc(c.uid)}</td>
       <td class="num">${c.balance}</td><td>${statusPill(c.status)}</td><td style="color:var(--ink-2)">${esc(when(c.lastUsed))}</td>
-      <td><button class="btn line sm" data-act="toggle" data-id="${c.id}">${c.status === 'blocked' ? 'Unblock' : 'Block'}</button></td></tr>`).join('')
+      <td><div class="rowbtns"><button class="btn line sm" data-act="report" data-id="${c.id}">Report</button><button class="btn line sm" data-act="toggle" data-id="${c.id}">${c.status === 'blocked' ? 'Unblock' : 'Block'}</button></div></td></tr>`).join('')
     : `<tr><td colspan="6" class="empty">${state.q ? 'No card matches “' + esc(state.q) + '”. Try a name or a UID.' : 'No cards yet. Add the first one.'}</td></tr>`;
   return `${suggestionsPanel()}<div class="ph"><div><h1>Cards</h1><p>${active} active, ${all.length - active} blocked</p></div><span class="sp"></span>
     <input class="search" id="q" placeholder="Search name or UID" value="${esc(state.q)}" aria-label="Search cards">
@@ -155,16 +156,17 @@ function presencePane() {
   const field = (id, label, value, hint, extra = '') => `<label class="field"><span>${label}</span><input id="${id}" type="number" min="0" step="1" value="${value ?? ''}" ${extra}>${hint ? `<small>${hint}</small>` : ''}</label>`;
   const chips = state.zones.map(z => `<button class="zonechip" data-act="pickzone" data-id="${z.id}" aria-pressed="${z.id === zone.id}"><b>${esc(z.name)}</b>
       <span>${z.terminals} point${z.terminals === 1 ? '' : 's'} · ${z.inside} inside</span></button>`).join('');
-  const inside = sessions.inside.length ? sessions.inside.map(x => `<tr><td><div class="hold">${avatar({ ...x.card, hasPhoto: false })}${esc(x.card.name)}</div></td>
+  const inside = sessions.inside.length ? sessions.inside.map(x => `<tr><td><div class="hold">${avatar({ ...x.card, hasPhoto: false })}<a href="#" class="holdlink" data-act="report" data-id="${esc(x.card.id)}">${esc(x.card.name)}</a></div></td>
       <td>${esc(x.zone)}</td><td>${esc(when(x.inAt))}<div class="subnote">${esc(x.terminal)}</div></td><td class="num">${x.minutes} min${x.overdue ? ' <span class="pill bad">Overdue</span>' : ''}</td>
       <td class="num">${x.overdue ? '—' : '+' + x.wouldEarn}</td>
       <td><div class="rowbtns"><button class="btn line sm" data-act="presenceclose" data-id="${x.id}" data-award="1"${x.overdue ? ' title="Too long to count, so no points are paid"' : ''}>${x.overdue ? 'Close, no points' : 'Sign out'}</button><button class="btn line sm" data-act="presenceclose" data-id="${x.id}" data-award="0">Discard</button></div></td></tr>`).join('')
     : '<tr><td colspan="6" class="empty">Nobody is signed in right now.</td></tr>';
-  const recent = sessions.recent.length ? sessions.recent.map(x => `<tr><td><div class="hold">${avatar({ ...x.card, hasPhoto: false })}${esc(x.card.name)}</div></td>
+  const recent = sessions.recent.length ? sessions.recent.map(x => `<tr><td><div class="hold">${avatar({ ...x.card, hasPhoto: false })}<a href="#" class="holdlink" data-act="report" data-id="${esc(x.card.id)}">${esc(x.card.name)}</a></div></td>
       <td>${esc(x.zone)}</td><td>${esc(when(x.inAt))}</td><td>${x.outAt ? esc(when(x.outAt)) : '—'}<div class="subnote">${esc(x.terminal)}</div></td>
       <td class="num">${x.minutes ?? '—'}${x.minutes != null ? ' min' : ''}</td><td class="num">${x.points ? '+' + x.points : '0'}</td>
-      <td>${x.status === 'closed' ? '<span class="pill ok">Signed out</span>' : x.status === 'expired' ? '<span class="pill bad">Forgotten</span>' : '<span class="pill mute">Discarded</span>'}</td></tr>`).join('')
-    : '<tr><td colspan="7" class="empty">No visits yet.</td></tr>';
+      <td>${x.status === 'closed' ? '<span class="pill ok">Signed out</span>' : x.status === 'expired' ? '<span class="pill bad">Forgotten</span>' : '<span class="pill mute">Discarded</span>'}</td>
+      <td>${x.status === 'closed' ? `<button class="btn line sm" data-act="undovisit" data-id="${x.id}">Cancel check-out</button>` : ''}</td></tr>`).join('')
+    : '<tr><td colspan="8" class="empty">No visits yet.</td></tr>';
   return `<div class="ph"><div><h1>Check-in</h1><p>Points for time spent inside. Each zone has its own rules; each check-in terminal belongs to one zone (set that under Terminals).</p></div><span class="sp"></span>
       <button class="btn line" data-act="refresh">Refresh</button><button class="btn green" data-act="newzone">Add zone</button></div>
     <div class="zonechips" role="group" aria-label="Zones">${chips}</div>
@@ -190,10 +192,10 @@ function presencePane() {
       <section class="panel"><h2>What a visit earns</h2><p class="hint">Calculated by the server from the rules as you type. The 24-hour limit isn’t included.</p>
         <table class="mini-table"><thead><tr><th>Stay</th><th>Points</th></tr></thead><tbody id="preview"></tbody></table></section>
     </div>
-    <h2 class="sect">Inside now</h2>
+    <div class="secthead"><h2 class="sect">Inside now</h2><span class="sp"></span>${zone.inside ? `<button class="btn line sm" data-act="closeall" data-id="${zone.id}" data-award="1">Sign out everyone in ${esc(zone.name)}</button><button class="btn line sm" data-act="closeall" data-id="${zone.id}" data-award="0">Discard everyone in ${esc(zone.name)}</button>` : ''}</div>
     <div class="tw"><table><thead><tr><th>Holder</th><th>Zone</th><th>Since</th><th>Time inside</th><th>Would earn</th><th></th></tr></thead><tbody>${inside}</tbody></table></div>
     <h2 class="sect">Recent visits</h2>
-    <div class="tw"><table><thead><tr><th>Holder</th><th>Zone</th><th>In</th><th>Out</th><th>Time</th><th>Points</th><th></th></tr></thead><tbody>${recent}</tbody></table></div>`;
+    <div class="tw"><table><thead><tr><th>Holder</th><th>Zone</th><th>In</th><th>Out</th><th>Time</th><th>Points</th><th></th><th></th></tr></thead><tbody>${recent}</tbody></table></div>`;
 }
 
 /** The rules as currently typed in the form (not yet saved). Empty caps mean no limit. */
@@ -267,7 +269,8 @@ function readersPane() {
         <button class="btn line sm" data-act="newcode2" data-id="${t.id}" data-name="${esc(t.name)}">New code</button>
         <a class="btn line sm" href="/display" target="_blank" rel="noopener">Open the display page</a>
         <label class="cbox"><input type="checkbox" data-beep-for="${t.id}"${t.displayBeep ? ' checked' : ''}> Beep on the display</label>
-        <p class="hint">On the screen next to the reader, go to <b>${esc(location.origin)}/display</b> and type the code. The screen then stays signed in until you press New code or revoke the reader. Anyone who knows the code can watch who taps (photo, name, points), so don’t post it publicly. On another device use this computer’s network address instead of “${esc(location.hostname)}”.</p></div></section>`;
+        <label class="cbox"><input type="checkbox" data-cancel-for="${t.id}"${t.displayCancel ? ' checked' : ''}> Allow Cancel on the display page</label>
+        <p class="hint">On the screen next to the reader, go to <b>${esc(location.origin)}/display</b> and type the code. The screen then stays signed in until you press New code or revoke the reader. Anyone who knows the code can watch who taps (photo, name, points), so don’t post it publicly. With Cancel on, a button on the screen undoes the last tap (a grant, check-in or check-out), so switch it on only for a screen that is staffed or out of reach. On another device use this computer’s network address instead of “${esc(location.hostname)}”.</p></div></section>`;
   }).join('') : '<p class="empty">No readers yet. Power one on with the firmware set to this server and it will show up above.</p>';
   const gone = revoked.length ? `<h2 class="sect">Revoked</h2><div class="tw"><table><tbody>${revoked.map(d => `<tr><td class="mono">${esc(d.id)}</td><td>${esc(d.ip || '')}</td><td><button class="btn line sm" data-act="rejectdevice" data-id="${esc(d.id)}">Forget</button></td></tr>`).join('')}</tbody></table></div>` : '';
   return `<div class="ph"><div><h1>Readers</h1><p>ESP32 card readers on your network. Each one gives a fixed number of points per tap, or signs people in and out.</p></div><span class="sp"></span><button class="btn line" data-act="refresh">Refresh</button></div>
@@ -297,7 +300,7 @@ function txnsPane() {
   return `<div class="ph"><div><h1>Transactions</h1><p>Newest first. Includes points admins granted or took away by hand. Storno adds a reversing row and keeps the original.</p></div></div>
     <div class="tw"><table><thead><tr><th>Time</th><th>ID</th><th>Holder</th><th>Points</th><th>Terminal</th><th>Operator</th><th>Status</th><th></th></tr></thead><tbody>
     ${tx.length ? tx.map(t => `<tr><td>${esc(when(t.createdAt))}</td><td class="mono">${t.type === 'adjust' ? 'Adjustment' : 'T-' + t.id}</td>
-      <td><div class="hold">${avatar({ ...t.card, hasPhoto: false })}${esc(t.card.name)}</div></td>
+      <td><div class="hold">${avatar({ ...t.card, hasPhoto: false })}<a href="#" class="holdlink" data-act="report" data-id="${esc(t.card.id)}">${esc(t.card.name)}</a></div></td>
       <td class="num ${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}${t.kind === 'presence' ? `<div class="subnote">Check-out · ${esc(t.note || '')}${t.zone ? ' · ' + esc(t.zone) : ''}</div>` : ''}${t.type === 'adjust' ? `<div class="subnote">${esc(t.note || 'No reason given')}</div>` : ''}</td><td>${esc(t.terminal || '—')}</td><td>${esc(t.operator || '—')}</td>
       <td>${t.type === 'adjust' ? `<span class="pill amber">${t.amount > 0 ? 'Admin grant' : 'Admin deduction'}</span>` : t.type === 'storno' ? `<span class="pill amber">Storno of T-${t.ref}</span>` : t.status === 'stornoed' ? '<span class="pill mute">Stornoed</span>' : '<span class="pill ok">Completed</span>'}</td>
       <td>${t.type === 'give' && t.status === 'ok' ? `<button class="btn line sm" data-act="storno" data-id="${t.id}">Storno</button>` : ''}</td></tr>`).join('')
@@ -329,6 +332,7 @@ function drawerView() {
     <p style="font-size:12px;color:var(--ink-3);margin-top:-6px">On a terminal, tap the card and choose “Suggest for addition”. It then appears under Suggested cards, with its UID ready to copy.</p>
     ${isNew ? '<label class="field">Starting points<input id="d-pts" type="number" min="0" value="0"></label>'
       : `<div class="dsep"></div><div class="inline" style="align-items:center"><div style="flex:1"><b class="num" style="font-size:26px">${c.balance}</b> points</div>${statusPill(c.status)}</div>
+         <button class="btn line" data-act="report" data-id="${c.id}" type="button" style="justify-content:center">Full report: every visit, point and a timeline</button>
          <div class="inline"><input class="search" id="d-adj" type="number" placeholder="Grant or take away, e.g. -5" style="min-width:0;flex:1" aria-label="Grant or take away points"><button class="btn line" data-act="adjust" type="button">Apply</button></div>
          <input class="search" id="d-reason" placeholder="Reason (optional, shown in Transactions)" maxlength="200" style="min-width:0;width:100%" aria-label="Reason">
          <div class="mini"><b style="color:var(--ink)">Recent</b>${hist.length ? hist.map(t => `<div><span>${esc(when(t.createdAt))} · ${t.type === 'adjust' ? (t.amount > 0 ? 'Admin grant' : 'Admin deduction') : 'T-' + t.id}</span><span class="${t.amount < 0 ? 'neg' : ''}">${signed(t.amount)}</span></div>`).join('') : '<div><span>No transactions yet</span></div>'}</div>`}
@@ -350,6 +354,20 @@ function modalView() {
     <label class="field" style="text-align:left">Terminal name<input name="name" required placeholder="Bar 2"></label>
     <label class="field" style="text-align:left">Place<input name="place" placeholder="Main hall"></label>
     <div class="inline"><button class="btn line" style="flex:1;justify-content:center" type="button" data-act="closemodal">Cancel</button><button class="btn green" style="flex:1;justify-content:center">Create and get code</button></div></form></div>`;
+  if (m.kind === 'confirm') return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
+    <h2>${esc(m.title)}</h2><p style="color:var(--ink-2)">${esc(m.text)}</p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn ${m.danger ? 'red' : 'green'}" style="flex:1;justify-content:center" data-act="confirmgo">${esc(m.button)}</button></div></div></div>`;
+  if (m.kind === 'closeall') {
+    const z = state.zones.find(x => x.id === m.zoneId);
+    const here = ((state.data.sessions || {}).inside || []).filter(x => z && x.zone === z.name);
+    const pay = here.filter(x => !x.overdue).reduce((n, x) => n + x.wouldEarn, 0), late = here.filter(x => x.overdue).length;
+    return `<div class="modal-scrim" data-act="closemodal"><div class="modal" data-stop>
+    <h2>${m.award ? 'Sign out' : 'Discard'} everyone in ${esc(z ? z.name : 'this zone')}?</h2>
+    <p style="color:var(--ink-2)">${plural(here.length, 'person', 'people')} ${here.length === 1 ? 'is' : 'are'} inside. ${m.award
+      ? `Each is signed out and paid by the zone’s rules: about ${pay} points in all${late ? `. ${plural(late, 'visit')} lasted longer than the longest stay and earn${late === 1 ? 's' : ''} nothing` : ''}.`
+      : 'Their visits are cancelled and nobody gets any points. This cannot be undone.'}</p>
+    <div class="inline"><button class="btn line" style="flex:1;justify-content:center" data-act="closemodal">Keep</button><button class="btn ${m.award ? 'green' : 'red'}" style="flex:1;justify-content:center" data-act="doclosall" data-id="${esc(m.zoneId)}" data-award="${m.award ? 1 : 0}">${m.award ? 'Sign out' : 'Discard'} ${plural(here.length, 'person', 'people')}</button></div></div></div>`;
+  }
   if (m.kind === 'import') return importModal();
   if (m.kind === 'batch') {
     const mins = [[10, '10 minutes'], [60, '1 hour'], [480, '8 hours'], [1440, '24 hours'], [4320, '3 days'], [10080, '7 days']];
@@ -407,11 +425,12 @@ function modalView() {
 function render() {
   const focus = document.activeElement?.id, pos = document.activeElement?.selectionStart;
   if (!token) { root.innerHTML = loginView(); return; }
-  const pane = { cards: cardsPane, terminals: terminalsPane, readers: readersPane, presence: presencePane, txns: txnsPane, staff: staffPane }[state.page]();
+  const pane = { report: reportPane, cards: cardsPane, terminals: terminalsPane, readers: readersPane, presence: presencePane, txns: txnsPane, staff: staffPane }[state.page]();
   root.innerHTML = shell(pane);
   if (focus === 'q') { const q = $('#q'); q.focus(); q.setSelectionRange(pos, pos); }
   loadPhotos();
   if (state.page === 'presence') refreshPreview();
+  if (state.page === 'report') positionTimeline();
 }
 
 /* ---------- group pairing export ---------- */
@@ -424,6 +443,85 @@ function downloadFile(name, bytes, type) {
 }
 /** Pasted into a spreadsheet, a cell starting with = + - @ would run as a formula; a leading ' keeps it text. */
 const tsvCell = v => (/^[=+\-@]/.test(v) ? "'" + v : v).replace(/[\t\r\n]+/g, ' ');
+
+/* ---------- one card's report ---------- */
+const ZOOMS = [24, 36, 50, 70, 100, 140, 200];
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtMinutes = m => { m = Math.round(m || 0); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`; };
+const dt = iso => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${DAY_NAMES[d.getDay()]} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const sgn = n => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n);
+const EVENT_LABEL = { checkin: 'Checked in', checkout: 'Checked out', discard: 'Visit cancelled', expired: 'Not signed out', grant: 'Points given', refund: 'Refund', adjust: 'Adjustment' };
+const EVENT_PILL = { checkin: 'mute', checkout: 'ok', discard: 'bad', expired: 'bad', grant: 'ok', refund: 'amber', adjust: 'amber' };
+
+function reportRows(r) {
+  const visits = new Map(r.visits.map(v => [v.id, v]));
+  return r.events.map(e => {
+    const v = e.visitId != null ? visits.get(e.visitId) : null;
+    let action = '';
+    if (e.type === 'grant' && !e.stornoed && e.txId) action = `<button class="btn line sm" data-act="storno" data-id="${e.txId}">Storno</button>`;
+    else if (e.type === 'checkout' && !e.stornoed && v && v.status === 'closed') action = `<button class="btn line sm" data-act="undovisit" data-id="${v.id}">Cancel check-out</button>`;
+    else if (e.type === 'checkin' && v && v.status === 'open') action = `<button class="btn line sm" data-act="discardvisit" data-id="${v.id}">Cancel check-in</button>`;
+    return `<tr class="${e.stornoed ? 'struck' : ''}"><td class="nowrap">${esc(dt(e.at))}</td>
+      <td><span class="pill ${EVENT_PILL[e.type] || 'mute'}">${esc(EVENT_LABEL[e.type] || e.type)}${e.stornoed ? ' (reversed)' : ''}</span></td>
+      <td>${esc(e.place || '—')}${e.zone ? `<div class="subnote">${esc(e.zone)}</div>` : ''}</td>
+      <td class="num">${e.minutes != null ? esc(fmtMinutes(e.minutes)) : ''}</td>
+      <td class="num ${e.points < 0 ? 'neg' : ''}">${e.points ? sgn(e.points) : ''}</td>
+      <td>${esc(e.by || '')}${e.note ? `<div class="subnote">${esc(e.note)}</div>` : ''}</td><td>${action}</td></tr>`;
+  }).join('') || '<tr><td colspan="7" class="empty">Nothing has happened with this card yet.</td></tr>';
+}
+
+function reportPane() {
+  const r = state.data.report;
+  if (!r) return '<p class="empty">Loading the report…</p>';
+  const c = r.card, s = r.summary;
+  const tl = PontTimeline.render(r, { pxPerHour: state.tl.zoom, lastDays: state.tl.days });
+  const tile = (value, label, sub = '') => `<div class="rtile"><b>${value}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const zones = r.byZone.length ? r.byZone.map(z => `<tr><td>${esc(z.zone)}</td><td class="num">${z.visits}</td><td class="num">${z.paid}</td><td class="num">${esc(fmtMinutes(z.minutes))}</td><td class="num">${z.points ? '+' + z.points : '0'}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No visits yet.</td></tr>';
+  const zoomIdx = ZOOMS.indexOf(state.tl.zoom);
+  return `<div class="ph"><button class="btn line sm" data-act="backtocards">← Cards</button><span class="sp"></span>
+      <button class="btn line" data-act="edit" data-id="${esc(c.id)}">Edit card</button><button class="btn green" data-act="reportxlsx">Download Excel</button></div>
+    <div class="rhead2">${avatar({ id: c.id, name: c.name, photoUrl: c.photoUrl, hasPhoto: true }, 'big')}
+      <div><h1>${esc(c.name)}</h1><p class="mono">${esc(c.uid)} ${statusPill(c.status)}</p></div></div>
+    <div class="rstats">
+      ${tile(s.balance, 'Points now')}
+      ${tile(esc(fmtMinutes(s.minutesPaid)), 'Time inside, paid', s.minutesNotCounted ? `${esc(fmtMinutes(s.minutesNotCounted))} more was cancelled or not counted` : '')}
+      ${tile(`${s.visitsPaid}`, 'Paid visits', `${s.visitsCancelled} cancelled · ${s.visitsExpired} not signed out${s.visitsOpen ? ` · ${s.visitsOpen} inside now` : ''}`)}
+      ${tile(sgn(s.pointsFromVisits), 'From check-outs')}
+      ${tile(sgn(s.pointsFromGrants), 'Given at terminals and readers')}
+      ${tile(sgn(s.pointsRefunded), 'Refunded')}
+      ${tile(sgn(s.pointsAdjusted), 'Adjusted by admins')}
+      ${tile(s.opening, 'Started with', 'before the log began')}
+    </div>
+    ${r.truncated ? '<p class="warnline">This card has so much history that only the newest part is shown here.</p>' : ''}
+    <div class="secthead"><h2 class="sect">Timeline</h2><span class="sp"></span>
+      <label class="field inlinefield"><span>Show</span><select id="tl-days"><option value=""${state.tl.days ? '' : ' selected'}>All days with activity</option>${[3, 7, 14, 30].map(n => `<option value="${n}"${state.tl.days === n ? ' selected' : ''}>Last ${n} days with activity</option>`).join('')}</select></label>
+      <button class="btn line sm" data-act="tlzoom" data-dir="-1" aria-label="Zoom out"${zoomIdx === 0 ? ' disabled' : ''}>−</button><button class="btn line sm" data-act="tlzoom" data-dir="1" aria-label="Zoom in"${zoomIdx === ZOOMS.length - 1 ? ' disabled' : ''}>+</button></div>
+    <div class="tlbox">${tl.html}</div>
+    <div class="tl-legend"><span><i class="sw closed"></i>Paid visit</span><span><i class="sw discarded"></i>Cancelled</span><span><i class="sw expired"></i>Not signed out</span><span><i class="sw open"></i>Inside now</span><span><i class="sw pos"></i>Points given</span><span><i class="sw neg"></i>Refund</span><span><i class="sw adjust"></i>Adjustment</span>${tl.hiddenDays ? `<span class="muted">${tl.hiddenDays} earlier ${tl.hiddenDays === 1 ? 'day is' : 'days are'} hidden</span>` : ''}</div>
+    <h2 class="sect">By zone</h2>
+    <div class="tw"><table><thead><tr><th>Zone</th><th>Visits</th><th>Paid</th><th>Time inside, paid</th><th>Points</th></tr></thead><tbody>${zones}</tbody></table></div>
+    <h2 class="sect">Everything that happened</h2>
+    <div class="tw"><table><thead><tr><th>When</th><th>What</th><th>Where</th><th>Time</th><th>Points</th><th>By</th><th></th></tr></thead><tbody>${reportRows(r)}</tbody></table></div>`;
+}
+
+/** Keeps the timeline where the person left it, or at its newest end, which is what they came to see. */
+function positionTimeline() {
+  const el = document.querySelector('.tl-scroll');
+  if (!el) return;
+  el.scrollLeft = state.tl.scroll == null || state.tl.atEnd ? el.scrollWidth : state.tl.scroll;
+}
+root.addEventListener('scroll', e => {
+  const el = e.target;
+  if (el && el.classList && el.classList.contains('tl-scroll')) { state.tl.scroll = el.scrollLeft; state.tl.atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 8; }
+}, true);
+
+/** The name and points of a visit, from whichever page the person is looking at. */
+function visitInfo(id) {
+  const recent = ((state.data.sessions || {}).recent || []).find(x => x.id === Number(id));
+  if (recent) return { name: recent.card.name, points: recent.points };
+  const r = state.data.report, v = r && r.visits.find(x => x.id === Number(id));
+  return v ? { name: r.card.name, points: v.points } : { name: 'This card', points: 0 };
+}
 
 /* ---------- events ---------- */
 const tempPassword = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
@@ -509,6 +607,10 @@ root.addEventListener('change', async e => {
     await guard(async () => { const t = await api('PATCH', '/terminals/' + e.target.dataset.modeFor, { mode: e.target.value }); await refresh(); toast(t.name + ' is now in ' + (t.mode === 'presence' ? 'Check-in' : t.mode === 'info' ? 'Info kiosk' : 'ATM') + ' mode.'); });
   }
   if ((e.target.id === 'imp-files' || e.target.id === 'imp-folder') && state.import) { addImportFiles([...e.target.files]); e.target.value = ''; }
+  if (e.target.id === 'tl-days') { state.tl.days = e.target.value ? Number(e.target.value) : null; state.tl.scroll = null; state.tl.atEnd = true; render(); }
+  if (e.target.dataset && e.target.dataset.cancelFor) {
+    await guard(async () => { await api('PATCH', '/terminals/' + e.target.dataset.cancelFor, { displayCancel: e.target.checked }); await refresh(); toast(e.target.checked ? 'The display page can now cancel the last tap.' : 'The display page can no longer cancel.'); });
+  }
   if (e.target.id === 'b-mode') document.getElementById('b-checkin').hidden = e.target.value !== 'presence';
   if (e.target.id === 'd-photo') {
     const file = e.target.files[0];
@@ -521,10 +623,34 @@ root.addEventListener('click', async e => {
   if (nav) { state.page = nav.dataset.go; state.q = ''; state.data = {}; render(); return refresh(); }
   const el = e.target.closest('[data-act]'); if (!el) return;
   if ((el.classList.contains('drawer-scrim') || el.classList.contains('modal-scrim')) && e.target.closest('[data-stop]')) return;
+  if (el.tagName === 'A') e.preventDefault();
   const act = el.dataset.act, id = el.dataset.id;
   const card = id && (state.data.all || state.data.cards || []).find(c => c.id === id);
   switch (act) {
     case 'signout': signOut(); break;
+    case 'report': state.page = 'report'; state.reportId = id; state.drawer = null; state.modal = null; state.data = {}; state.tl.scroll = null; state.tl.atEnd = true; render(); await refresh(); break;
+    case 'backtocards': state.page = 'cards'; state.reportId = null; state.data = {}; render(); await refresh(); break;
+    case 'tlzoom': { const at = ZOOMS.indexOf(state.tl.zoom); state.tl.zoom = ZOOMS[Math.min(ZOOMS.length - 1, Math.max(0, (at < 0 ? 3 : at) + Number(el.dataset.dir)))]; state.tl.scroll = null; state.tl.atEnd = true; render(); break; }
+    case 'reportxlsx': {
+      const r = state.data.report;
+      const rows = [['When', 'What', 'Where', 'Zone', 'Minutes', 'Points', 'By', 'Note'], ...r.events.map(x => [localStamp(x.at), (EVENT_LABEL[x.type] || x.type) + (x.stornoed ? ' (reversed)' : ''), x.place || '', x.zone || '', x.minutes ?? '', x.points || '', x.by || '', x.note || ''].map(String))];
+      downloadFile(`pont-report-${r.card.name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'card'}-${localStamp(new Date().toISOString()).slice(0, 10)}.xlsx`, PontXlsx.build('Report', rows, [18, 18, 22, 16, 9, 8, 20, 36]), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      break; }
+    case 'undovisit': { const info = visitInfo(id);
+      state.modal = { kind: 'confirm', title: 'Cancel this check-out?', text: `${info.name} ${info.points ? `will lose ${info.points} points and ` : ''}will be inside again, as if they had not signed out.`, button: 'Cancel the check-out', danger: true,
+        run: async () => { const r = await api('POST', `/presence/sessions/${id}/cancel`, { expect: 'out' }); await refresh(); toast(`Check-out cancelled${r.points ? ': ' + r.points + ' points taken back' : ''}.`); } };
+      render(); break; }
+    case 'discardvisit': { const info = visitInfo(id);
+      state.modal = { kind: 'confirm', title: 'Cancel this check-in?', text: `The visit is discarded and ${info.name} is no longer inside. No points are paid.`, button: 'Cancel the check-in', danger: true,
+        run: async () => { await api('POST', `/presence/sessions/${id}/cancel`, { expect: 'in' }); await refresh(); toast('Check-in cancelled.'); } };
+      render(); break; }
+    case 'confirmgo': { const run = state.modal && state.modal.run; state.modal = null; render(); if (run) await guard(run); break; }
+    case 'closeall': state.modal = { kind: 'closeall', zoneId: id, award: el.dataset.award === '1' }; render(); break;
+    case 'doclosall': state.modal = null; render(); await guard(async () => {
+      const r = await api('POST', `/zones/${id}/close-all`, { award: el.dataset.award === '1' });
+      await refresh();
+      toast(el.dataset.award === '1' ? `Signed out ${plural(r.closed, 'person', 'people')}${r.points ? ' · +' + r.points + ' points' : ''}${r.overdue ? ` · ${plural(r.overdue, 'visit')} too long, no points` : ''}.` : `Discarded ${plural(r.closed, 'visit')}.`);
+    }); break;
     case 'newcard': state.drawer = { mode: 'new' }; render(); break;
     case 'addsuggested': state.drawer = { mode: 'new', uid: el.dataset.uid }; render(); break;
     case 'copyuid': e.stopPropagation(); toast((await copyText(el.dataset.uid)) ? 'Copied ' + el.dataset.uid : 'Could not copy. Select the UID and copy it by hand.'); break;
@@ -828,7 +954,7 @@ async function retryImportPhotos() {
 /* ---------- live updates (WebSocket) ---------- */
 /* The server only says what changed ("cards", "transactions" ...). The page then asks for its own data again, but never
    while that would wipe something being typed: it waits until the person is done, then updates at once. */
-const PAGE_TOPICS = { cards: ['cards', 'transactions', 'suggestions'], terminals: ['terminals', 'zones'], readers: ['terminals', 'devices', 'zones'], presence: ['presence', 'zones', 'cards'], txns: ['transactions'], staff: ['staff'] };
+const PAGE_TOPICS = { report: ['cards', 'transactions', 'presence'], cards: ['cards', 'transactions', 'suggestions'], terminals: ['terminals', 'zones'], readers: ['terminals', 'devices', 'zones'], presence: ['presence', 'zones', 'cards'], txns: ['transactions'], staff: ['staff'] };
 const ALWAYS_TOPICS = ['suggestions', 'devices'];   // their badges are in the side bar of every page
 const TIME_DEPENDENT = ['terminals', 'readers', 'presence'];   // "online", "minutes inside": they change as time passes, with no event
 let socket = null, reconnectTimer = null, reconnectDelay = 1000, hadConnection = false;

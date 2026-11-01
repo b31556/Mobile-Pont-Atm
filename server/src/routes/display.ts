@@ -8,6 +8,8 @@ import { eventFor } from '../display.js';
 import { AttemptLimiter, TOO_MANY } from '../limiter.js';
 import { getZone } from '../presence.js';
 import { cardPhoto } from './cards.js';
+import { Refusal, stornoTransaction } from '../storno.js';
+import { cancelVisit } from './presence.js';
 
 const COOKIE = 'pont-display';
 const SESSION_SECONDS = 365 * 24 * 3600;      // a wall screen stays signed in until the code is renewed or the reader revoked
@@ -44,6 +46,13 @@ export function publishTap(app: FastifyInstance, terminalId: string | undefined,
   if (event) app.displayHub.publish(terminalId, event);
 }
 
+/** Tells a terminal's display that something it showed was cancelled. */
+export function publishCancelled(app: FastifyInstance, terminalId: string, card: { id: string; name: string }, text: string) {
+  app.displayHub.publish(terminalId, { tone: 'neutral', headline: 'Cancelled', details: [text], balance: null, card: { id: card.id, name: card.name }, sound: 'refused' });
+}
+
+const TEN_MINUTES_MS = 10 * 60 * 1000;
+
 function cookieOf(req: FastifyRequest): string | null {
   for (const part of (req.headers.cookie ?? '').split(';')) {
     const [name, ...rest] = part.trim().split('=');
@@ -63,16 +72,16 @@ export function registerDisplay(app: FastifyInstance, dataDir: string) {
   const perAddress = new AttemptLimiter(10, 15 * 60 * 1000);   // wrong codes from one address
   const everywhere = new AttemptLimiter(300, 60 * 60 * 1000);  // wrong codes from anywhere: a 6-digit code can be guessed if this is unlimited
 
-  type Terminal = { id: string; name: string; mode: string; kind: string; zone_id: string | null; direction: string; display_beep: number };
+  type Terminal = { id: string; name: string; mode: string; kind: string; zone_id: string | null; direction: string; display_beep: number; display_cancel: number };
   const terminalOf = (req: FastifyRequest): Terminal | undefined => {
     const token = cookieOf(req);
     if (!token || token.length < 20 || token.length > 64) return undefined;
-    return db.prepare(`select t.id, t.name, t.mode, t.kind, t.zone_id, t.direction, t.display_beep from display_sessions s
+    return db.prepare(`select t.id, t.name, t.mode, t.kind, t.zone_id, t.direction, t.display_beep, t.display_cancel from display_sessions s
       join terminals t on t.id=s.terminal_id where s.token_hash=? and t.active=1`).get(sha256(token)) as Terminal | undefined;
   };
   const stateOf = (t: Terminal) => ({
     name: t.name, mode: t.mode, kind: t.kind, direction: t.direction, zoneName: t.zone_id ? getZone(db, t.zone_id)?.name ?? null : null,
-    beep: !!t.display_beep, last: hub.last(t.id),
+    beep: !!t.display_beep, canCancel: !!t.display_cancel, last: hub.last(t.id),
   });
   const closed = {
     'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer',
@@ -87,7 +96,7 @@ export function registerDisplay(app: FastifyInstance, dataDir: string) {
     if (perAddress.blocked(ip) || everywhere.blocked('all')) return reply.code(429).headers(closed).send(TOO_MANY);
     const code = (req.body as { code?: unknown } | undefined)?.code;
     if (typeof code !== 'string' || !/^\d{6}$/.test(code)) return reply.code(400).headers(closed).send({ error: 'The code is 6 digits' });
-    const t = db.prepare('select id, name, mode, kind, zone_id, direction, display_beep from terminals where display_code=? and active=1').get(code) as Terminal | undefined;
+    const t = db.prepare('select id, name, mode, kind, zone_id, direction, display_beep, display_cancel from terminals where display_code=? and active=1').get(code) as Terminal | undefined;
     if (!t) {
       perAddress.fail(ip); everywhere.fail('all');
       return reply.code(401).headers(closed).send({ error: 'That code is not right' });
@@ -112,6 +121,36 @@ export function registerDisplay(app: FastifyInstance, dataDir: string) {
     const t = terminalOf(req);
     if (!t) return reply.code(401).headers(closed).send({ error: 'Enter the code' });
     return reply.headers(closed).send(stateOf(t));
+  });
+
+  /**
+   * The Cancel button of a display page, for a reader that has it switched on: undoes what the screen last showed (a charge, a check-in or
+   * a check-out) if that was this reader's own and recent. The screen's code is the only credential, so this is off unless an admin asks for it.
+   */
+  app.post('/display/cancel', async (req, reply) => {
+    const t = terminalOf(req);
+    if (!t) return reply.code(401).headers(closed).send({ error: 'Enter the code' });
+    if (!t.display_cancel) return reply.code(403).headers(closed).send({ error: 'Cancelling from this screen is switched off.', code: 'switched_off' });
+    const seq = (req.body as { seq?: unknown } | undefined)?.seq;
+    const found = typeof seq === 'number' ? hub.find(t.id, seq) : undefined;
+    const ref = found?.event.ref;
+    if (!found || !ref || hub.now() - found.atMs > TEN_MINUTES_MS) return reply.code(404).headers(closed).send({ error: 'That is too old to cancel from here.', code: 'too_old' });
+    const who = { id: t.id, role: 'operator', terminalId: t.id, viaTerminal: true };
+    try {
+      if (ref.type === 'tx') {
+        const r = stornoTransaction(db, ref.id, who);
+        publishCancelled(app, t.id, r.card, `The charge was cancelled: ${Math.abs(r.tx.amount)} points taken back.`);
+      } else {
+        const r = cancelVisit(db, ref.id, who, ref.expect ?? 'in');
+        if (r.status !== 200) return reply.code(r.status).headers(closed).send(r.body);
+        const b = r.body as { card: { id: string; name: string }; action: string };
+        publishCancelled(app, t.id, b.card, b.action === 'cancelled_in' ? 'The check-in was cancelled.' : 'The check-out was cancelled: the points were taken back.');
+      }
+    } catch (e) {
+      if (e instanceof Refusal) return reply.code(e.status).headers(closed).send({ error: e.message, code: e.code });
+      throw e;
+    }
+    return reply.headers(closed).send({ ok: true });
   });
 
   app.get('/display/photo/:cardId', async (req, reply) => {

@@ -450,10 +450,11 @@ describe('zones', () => {
 });
 
 describe('rules are per zone', () => {
-  it('a visit is paid by the rules of the zone where it began, whichever terminal signs out', async () => {
+  it('a visit is paid by the rules of the zone where it began, whichever sign-out point is used', async () => {
     const { door, back, tap, backdate, makeZone, assign } = await setup();
     const gym = await makeZone('Gym', { pointsPerBlock: 3 });
-    await assign(door, { zoneId: gym.id });             // Door is in the Gym; Back is in the default zone (8 per 12 min)
+    await assign(door, { zoneId: gym.id });             // Door is in the Gym; Back is a sign-out point in the default zone (8 per 12 min)
+    await assign(back, { direction: 'out' });
     await tap(door); backdate(36);
     expect((await tap(back)).json()).toMatchObject({ action: 'out', points: 9, zone: { name: 'Gym' } });
   });
@@ -582,12 +583,17 @@ describe('point types', () => {
     expect((await tap(door)).json().action).toBe('out');
   });
 
-  it('a sign-in point in a second zone does not move someone who is still inside the first', async () => {
-    const { door, back, tap, backdate, makeZone, assign } = await gate();
+  it('a sign-in point in a second zone cancels the visit still open in the first and signs in there', async () => {
+    const { door, back, tap, backdate, makeZone, assign, count, balance, db } = await gate();
     const gym = await makeZone('Gym');
     await assign(back, { direction: 'in', zoneId: gym.id });
     await tap(door); backdate(40);
-    expect((await tap(back)).json()).toMatchObject({ action: 'already_in', zone: { name: 'Main area' } });
+    const res = (await tap(back)).json();
+    expect(res).toMatchObject({ action: 'in', zone: { name: 'Gym' }, discarded: { zone: 'Main area', minutes: 40 } });
+    expect(balance()).toBe(46);                                                   // 40 minutes would have paid 24: it pays nothing
+    expect(count("select count(*) c from transactions where kind='presence'")).toBe(0);
+    expect(db.prepare('select status, points, zone_id from presence_sessions order by id').all()).toMatchObject([{ status: 'discarded', points: 0 }, { status: 'open' }]);
+    expect(count("select count(*) c from presence_sessions where status='open'")).toBe(1);
   });
 
   it('a card tapped at a terminal with the wrong mode or a blocked card is still refused at gates', async () => {

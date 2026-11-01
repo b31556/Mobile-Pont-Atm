@@ -144,6 +144,7 @@ export function changeFor(method: string, url: string, status: number): { topics
   if (path === '/fixed/tap' || path === '/presence/tap') return status < 500 ? { topics: ['cards', 'transactions', 'presence', 'suggestions', 'terminals'] } : null;
   if (path === '/info/tap') return status < 500 ? { topics: ['suggestions', 'terminals'] } : null;   // reads only; an unregistered card is added to the suggestions
   if (status >= 400) return null;
+  if (/^\/zones\/[^/]+\/close-all$/.test(path)) return { topics: ['presence', 'cards', 'transactions', 'zones'] };   // everyone in a zone was signed out or discarded
   if (path === '/presence/preview' || path === '/cards/import/check') return null;   // a calculation, not a change
   if (path === '/heartbeat') return { topics: ['terminals'], throttle: { key: 'heartbeat', everyMs: 20_000 } };
   if (path === '/device/hello') return { topics: ['devices', 'terminals'], throttle: { key: 'hello', everyMs: 5_000 } };
