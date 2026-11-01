@@ -60,6 +60,7 @@ import com.pont.card.core.ProgramState
 import com.pont.card.core.duration
 import com.pont.card.core.hm
 import com.pont.card.core.range
+import com.pont.card.core.shortDayLabels
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -217,7 +218,7 @@ fun PlanTab(
         // your day
         val used = mine.sumOf { it.at.dur }
         Row(Modifier.padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 4.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-            Text("Your ${day.label.substringBefore(' ')}", color = p.ink, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+            Text("Your ${state.doc?.let { d -> shortDayLabels(d.days).getOrNull(d.days.indexOf(day)) } ?: day.label}", color = p.ink, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
             Text("${mine.size} planned · ${duration(used)} · ${duration(max(0, d1 - d0 - used))} free", color = p.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
         DayLine(

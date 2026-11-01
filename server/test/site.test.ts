@@ -14,18 +14,26 @@ async function make() {
 const get = (app: Awaited<ReturnType<typeof make>>['app'], url: string) => app.inject({ method: 'GET', url });
 
 describe('the home page', () => {
-  it('lists the app page and the program as tiles, and the display and the admin as small links last', async () => {
+  it('keeps every page one click away: the menu, two tiles, and the display and the admin as small links after them', async () => {
     const { app } = await make();
     const res = await get(app, '/');
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
-    const order = ['/app', '/program', '/display', '/admin/'].map(h => res.body.indexOf(`href="${h}"`));
-    expect(order.every(i => i > 0)).toBe(true);
-    expect(order).toEqual([...order].sort((a, b) => a - b));
-    const small = res.body.indexOf('class="small-links"');
-    expect(small).toBeGreaterThan(res.body.indexOf('href="/program"'));
-    expect(res.body.indexOf('href="/display"')).toBeGreaterThan(small); expect(res.body.indexOf('href="/admin/"')).toBeGreaterThan(small);
+    const nav = res.body.slice(res.body.indexOf('<nav'), res.body.indexOf('</nav>'));
+    for (const href of ['/app', '/program', '/display', '/admin/']) expect(nav).toContain(`href="${href}"`);
     expect(res.body.match(/class="tile"/g)).toHaveLength(2);
+    const small = res.body.indexOf('class="small-links"');
+    expect(small).toBeGreaterThan(res.body.lastIndexOf('class="tile"'));
+    const links = res.body.slice(small, res.body.indexOf('</section>', small));
+    expect(links).toContain('href="/display"'); expect(links).toContain('href="/admin/"');
+  });
+  it('says what the project is, and every picture on it exists', async () => {
+    const { app } = await make();
+    const body = (await get(app, '/')).body;
+    expect(body).toMatch(/Tap a card/); expect(body).toMatch(/Three ways to give points/); expect(body).toContain('github.com/b31556/Mobile-Pont-Atm');
+    const images = [...new Set([...body.matchAll(/src="(\/site-assets\/img\/[^"]+)"/g)].map(m => m[1]))];
+    expect(images.length).toBeGreaterThan(5);
+    for (const src of images) expect((await get(app, src)).statusCode, src).toBe(200);
   });
 });
 
@@ -52,9 +60,11 @@ describe('the app page', () => {
   });
   it('loads nothing from other sites', async () => {
     const { app } = await make();
-    for (const url of ['/', '/app', '/site-assets/site.css', '/site-assets/app.js']) {
-      // (an inline icon's "http://www.w3.org/2000/svg" is a label, not a request: look for things that actually load)
-      expect((await get(app, url)).body, url).not.toMatch(/(src|href)=["']https?:|url\(["']?https?:|@import|fetch\(["']https?:/);
+    for (const url of ['/', '/app', '/program', '/site-assets/site.css', '/site-assets/app.js']) {
+      // (an inline icon's "http://www.w3.org/2000/svg" is a label, not a request: look for things that actually load.
+      //  A plain link to another site, like the one to GitHub, loads nothing until it is clicked.)
+      const body = (await get(app, url)).body;
+      expect(body, url).not.toMatch(/<(script|img|iframe|source|video|audio)\b[^>]*\bsrc=["']https?:|<link\b[^>]*\bhref=["']https?:|url\(["']?https?:|@import|fetch\(["']https?:/);
     }
   });
 });

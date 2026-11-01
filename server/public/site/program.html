@@ -161,7 +161,8 @@ function drawBar() {
   $('#filters').innerHTML = [['all', 'All'], ['liked', `Liked (${[...likes].filter(id => byId[id]).length})`], ['fixed', 'Fixed hours'], ['open', 'Open']].map(([k, l]) => `<button data-filter="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join('');
 }
 function drawGoal() {
-  const g = DOC.goal, day = DOC.days.find(d => d.key === g.dayKey), name = day ? day.label.split(' ')[0] : '';
+  const g = DOC.goal, day = DOC.days.find(d => d.key === g.dayKey), firsts = DOC.days.map(d => d.label.split(' ')[0]);
+  const name = day ? (new Set(firsts).size === firsts.length ? day.label.split(' ')[0] : day.label) : '';
   $('#goal').hidden = !(g.total > 0);
   $('#goal').innerHTML = `The goal: <b>${g.total} points</b> in all${g.dayMin > 0 && name ? `, at least <b>${g.dayMin}</b> of them on <b>${esc(name)}</b>` : ''}.`;
 }

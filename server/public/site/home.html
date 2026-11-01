@@ -5,18 +5,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#12202B">
+<meta name="description" content="Pont turns an NFC card into a points balance for events, clubs and workspaces.">
 <title>Pont</title>
 <link rel="stylesheet" href="/site-assets/site.css">
 </head>
 <body>
 <header class="top">
   <a class="brand" href="/"><span class="coin">P</span>Pont</a>
+  <nav aria-label="Pages"><a href="/app">Get the app</a><a href="/program">Program</a><a href="/display">Display</a><a href="/admin/">Admin</a></nav>
 </header>
-<main>
-  <section class="hero-home">
-    <h1>Points for events.</h1>
-    <p class="lead">Tap a card at a reader or a phone, give points, check people in, and let everyone see how they are doing. Pick where you want to go.</p>
+<main class="landing">
+
+  <section class="lp-hero">
+    <div class="lp-copy">
+      <span class="badge">Points for events, clubs and workspaces</span>
+      <h1>Tap a card.<br>Give points.<br>Everyone sees.</h1>
+      <p class="lead">Pont turns an NFC card into a points balance. Hand out points at a reader or from a phone, pay them for time spent inside, and let everyone see how they are doing, on their own phone and on a screen next to the reader.</p>
+      <div class="lp-cta">
+        <a class="btn big" href="/app">Get the Pont Card app</a>
+        <a class="btn big alt" href="/program">See the program</a>
+      </div>
+    </div>
+    <figure class="lp-shots" aria-label="The app and the program">
+      <img class="s1" src="/site-assets/img/app-plan-card.png" alt="Pont Card: an event card to drag onto your day" loading="eager">
+      <img class="s2" src="/site-assets/img/app-pulse.png" alt="Pont Card: what is open now" loading="eager">
+    </figure>
   </section>
+
   <section class="tiles" aria-label="Pages">
     <a class="tile" href="/app">
       <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></span>
@@ -36,6 +51,73 @@
     <a href="/display">Display</a>
     <a href="/admin/">Admin</a>
   </section>
+
+  <section class="lp-steps" aria-labelledby="how">
+    <h2 id="how">How it works</h2>
+    <div class="steps">
+      <div class="step"><b>A card, not an account</b><span>People carry an ordinary NFC card. Pont only reads its number; the points live on the server, so a card can't be edited to gain points.</span></div>
+      <div class="step"><b>Points at every tap</b><span>A fixed amount at a reader, any amount from a staff phone, or points for the time someone spends inside an area.</span></div>
+      <div class="step"><b>Everyone sees</b><span>The holder sees their points and history in the app, and a screen beside the reader shows each tap with the person's photo.</span></div>
+    </div>
+  </section>
+
+  <section class="lp-row" aria-labelledby="ways">
+    <div class="lp-text">
+      <h2 id="ways">Three ways to give points</h2>
+      <ul class="features">
+        <li><span><b>A phone as a point ATM.</b> Type an amount or tap a preset, hold a card to the phone, and the points land. The phone shows the holder's photo so the face can be checked, and any charge can be cancelled.</span></li>
+        <li><span><b>Small ESP32 readers.</b> A box with a card reader and a four-digit display gives a fixed number of points per tap, or works as a sign-in and sign-out point. It joins the server by itself and an admin approves it.</span></li>
+        <li><span><b>Check-in areas.</b> Sign in at a door, sign out when leaving, and the server pays by the area's rules: points per block of minutes, a longest stay, a daily cap.</span></li>
+      </ul>
+    </div>
+    <figure class="lp-fig"><img src="/site-assets/img/esp32-reader-front.jpg" alt="The reader: an ESP32 board, a card reader and a four-digit display on a breadboard" loading="lazy"><figcaption>The reader is an ESP32, a card reader and a four-digit display.</figcaption></figure>
+  </section>
+
+  <section class="lp-row flip" aria-labelledby="see">
+    <figure class="lp-fig"><img src="/site-assets/img/web-display.png" alt="The display page right after a tap: photo, name, points and balance" loading="lazy"><figcaption>The display page beside a reader, right after a tap.</figcaption></figure>
+    <div class="lp-text">
+      <h2 id="see">A screen that shows every tap</h2>
+      <p>Open the display page on any screen, type the reader's six-digit code, and each tap appears as a big, readable result: the photo, the name, what was given and the new balance. A cancel button can be switched on for each reader, for a card tapped by mistake.</p>
+      <p><a class="go" href="/display">Open the display →</a></p>
+    </div>
+  </section>
+
+  <section class="lp-wide" aria-labelledby="prog">
+    <div class="lp-text">
+      <h2 id="prog">The program, laid out by time</h2>
+      <p>For events with many things going on, the program shows every activity as a row against the clock: fixed hours as solid bars, open-for-hours activities as dashed bands, with the room, the points and what to bring. In the app you can drag an activity onto your day, choose how long you will stay and watch the points you could earn add up against the goal.</p>
+      <p><a class="go" href="/program">Open the program →</a></p>
+    </div>
+    <figure class="lp-fig"><img src="/site-assets/img/web-program.png" alt="The program as lanes: one row per activity, time across" loading="lazy"></figure>
+  </section>
+
+  <section class="lp-gallery" aria-labelledby="app">
+    <h2 id="app">Pont Card, in your pocket</h2>
+    <p class="sub">Your points, everything that happened to them, and the program. No account, nothing to sign up for.</p>
+    <div class="phones">
+      <figure><img src="/site-assets/img/app-plan-card.png" alt="An event card to drag onto your day" loading="lazy"><figcaption>Pick an event</figcaption></figure>
+      <figure><img src="/site-assets/img/app-plan.png" alt="The day planned, with the points on top" loading="lazy"><figcaption>Plan the day</figcaption></figure>
+      <figure><img src="/site-assets/img/app-pulse.png" alt="What is open now" loading="lazy"><figcaption>What is open now</figcaption></figure>
+      <figure><img src="/site-assets/img/app-history.png" alt="The card and its history" loading="lazy"><figcaption>Your card and its history</figcaption></figure>
+    </div>
+    <p><a class="btn" href="/app">Download for Android</a></p>
+  </section>
+
+  <section class="lp-row" aria-labelledby="run">
+    <div class="lp-text">
+      <h2 id="run">Run the event from one website</h2>
+      <p>The admin site manages cards with their photos, readers, check-in areas, staff and every transaction. It updates by itself as things happen, imports a whole list of cards in one go, and shows a report for each person: where they were, when, and what each visit paid, on a timeline. The same site is laid out for phones.</p>
+      <p><a class="go" href="/admin/">Open the admin →</a></p>
+    </div>
+    <figure class="lp-fig"><img src="/site-assets/img/web-report.png" alt="The admin site: one person's report with a timeline" loading="lazy"></figure>
+  </section>
+
+  <section class="lp-built" aria-labelledby="built">
+    <h2 id="built">Open source, small, and yours</h2>
+    <p>A Node and SQLite server, an admin website, ESP32 reader firmware and Android apps, all in one repository. It runs on a modest machine, keeps its data in one database file, and every balance change is written to a ledger that can be cancelled but not edited.</p>
+    <p><a class="go" href="https://github.com/b31556/Mobile-Pont-Atm" rel="noopener">Read the code and the guide on GitHub →</a></p>
+  </section>
+
 </main>
 <footer>Pont</footer>
 </body>

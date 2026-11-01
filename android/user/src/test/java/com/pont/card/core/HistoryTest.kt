@@ -12,6 +12,11 @@ class HistoryTest {
     private fun e(at: String, kind: String = "fixed", amount: Int = 8, place: String = "Bar 2", note: String? = null, stornoed: Boolean = false) =
         HistoryEntry(at, kind, amount, place, note, stornoed)
 
+    @Test fun aNegativeCardEntryIsSpentNotReceived() {
+        assertEquals("Points spent", rowCopy(e("2026-10-22T09:00:00Z", amount = -6, kind = "atm")).title)
+        assertEquals("Points received", rowCopy(e("2026-10-22T09:00:00Z", amount = 8, kind = "atm")).title)
+    }
+
     // ---- grouping ----
 
     @Test fun rowsAreGroupedByDayNewestFirst() {

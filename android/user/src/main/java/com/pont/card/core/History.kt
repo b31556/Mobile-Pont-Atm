@@ -50,7 +50,7 @@ fun rowCopy(e: HistoryEntry): RowCopy {
     val note = e.note?.trim()?.ifEmpty { null }
     val both = listOfNotNull(place, note).joinToString(" · ").ifEmpty { null }
     val (kind, title, detail) = when (e.kind) {
-        "atm", "fixed" -> Triple(RowKind.Received, "Points received", place)
+        "atm", "fixed" -> Triple(RowKind.Received, if (e.amount < 0) "Points spent" else "Points received", place)
         "presence" -> Triple(RowKind.CheckOut, "Check-out", both)
         // The server's note for the reversal of a cancelled check-out; any other storno is a plain refund.
         "storno" ->

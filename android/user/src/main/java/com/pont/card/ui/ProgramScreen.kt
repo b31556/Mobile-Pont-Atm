@@ -39,6 +39,7 @@ import com.pont.card.core.ProgramState
 import com.pont.card.core.PublicCard
 import com.pont.card.core.earnedOn
 import com.pont.card.core.earnedOnDays
+import com.pont.card.core.shortDayLabels
 import com.pont.card.core.stillAhead
 import java.time.LocalDate
 import java.time.LocalTime
@@ -110,10 +111,10 @@ private fun Loaded(
     val gotGoalDay = if (card != null && goalDay != null) earnedOn(card.history, goalDay.date) else 0
 
     Column(Modifier.fillMaxSize()) {
-        StatusCard(live, got, gotGoalDay, if (live) 0 else plannedAll, if (live) 0 else plannedGoalDay, doc, goalDay?.label?.substringBefore(' ') ?: "", card != null, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
+        StatusCard(live, got, gotGoalDay, if (live) 0 else plannedAll, if (live) 0 else plannedGoalDay, doc, goalDay?.let { shortDayLabels(doc.days)[doc.days.indexOf(it)] } ?: "", card != null, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
         Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Segment(listOf("Plan", "Pulse"), tab, { tab = it; sheetId = null }, Modifier.weight(1f), dark = true)
-            Segment(doc.days.map { it.label.substringBefore(' ') }, doc.days.indexOf(day), { dayKey = doc.days[it].key; selId = null; idx = 0; pulseT = null }, Modifier, dark = false)
+            Segment(shortDayLabels(doc.days), doc.days.indexOf(day), { dayKey = doc.days[it].key; selId = null; idx = 0; pulseT = null }, Modifier, dark = false)
         }
         if (state.offline) Banner("Offline, showing the saved program", Tone.Warn, Modifier.padding(horizontal = 16.dp).padding(bottom = 6.dp))
         Box(Modifier.weight(1f)) {

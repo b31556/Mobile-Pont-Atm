@@ -140,3 +140,44 @@ footer{text-align:center;color:var(--ink-3);font-size:14px;padding-bottom:30px}
 .small-links span{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-right:6px}
 .small-links a{padding:7px 14px;border-radius:999px;background:var(--card);box-shadow:0 0 0 1px var(--line);text-decoration:none;font-size:14px;font-weight:700;color:var(--ink-2)}
 .small-links a:hover{color:var(--ink);box-shadow:0 0 0 1.5px var(--ink-3)}
+
+/* the landing page (home.html) */
+main.landing{max-width:1100px;gap:44px;padding-top:12px}
+.lp-hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:30px;align-items:center;padding:clamp(8px,3vw,30px) 4px 0}
+.lp-hero h1{margin:6px 0 14px}
+.lp-cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
+.lp-shots{position:relative;height:min(520px,92vw);margin:0}
+.lp-shots img{position:absolute;width:min(250px,52vw);aspect-ratio:9/17;object-fit:cover;object-position:top;border-radius:26px;box-shadow:0 26px 54px -20px rgba(18,32,43,.55),0 0 0 8px var(--ink);background:var(--card)}
+.lp-shots .s1{left:2%;top:36px;transform:rotate(-4deg)}
+.lp-shots .s2{right:2%;top:0;transform:rotate(3deg);z-index:2}
+.lp-steps h2,.lp-gallery h2,.lp-built h2,.lp-text h2{font-size:clamp(24px,3.6vw,32px);letter-spacing:-.02em;margin-bottom:12px}
+.lp-steps .steps{margin-top:6px}
+.lp-row,.lp-wide{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:34px;align-items:center}
+.lp-row.flip .lp-fig{order:-1}
+.lp-row>*,.lp-wide>*,.lp-hero>*{min-width:0}
+.lp-wide{grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr)}
+.lp-text p{color:var(--ink-2);margin-bottom:12px;max-width:36em}
+.lp-text .features li{font-size:16px;color:var(--ink-2)}
+.lp-text .features li b{color:var(--ink)}
+.lp-text .features{margin:0}
+.lp-fig{margin:0}
+.lp-fig img{width:100%;height:auto;display:block;border-radius:18px;box-shadow:var(--shadow);background:var(--card)}
+.lp-fig figcaption{margin-top:8px;color:var(--ink-3);font-size:13px}
+.go{font-weight:700;color:var(--green);text-decoration:none}
+.go:hover{text-decoration:underline}
+.lp-gallery{text-align:center;display:grid;gap:12px;justify-items:center}
+.lp-gallery .sub{color:var(--ink-2);max-width:34em}
+.phones{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;width:100%;margin:14px 0 10px}
+.phones figure{margin:0;display:grid;gap:10px;align-content:start}
+.phones img{width:100%;aspect-ratio:9/17;object-fit:cover;object-position:top;border-radius:22px;box-shadow:0 18px 40px -18px rgba(18,32,43,.5),0 0 0 5px var(--ink);background:var(--card)}
+.phones figcaption{font-weight:700;color:var(--ink-2);font-size:14px}
+.lp-built{background:var(--card);border-radius:24px;box-shadow:var(--shadow);padding:clamp(22px,4vw,38px);display:grid;gap:8px}
+.lp-built p{color:var(--ink-2);max-width:42em}
+@media (max-width:860px){
+  .lp-hero,.lp-row,.lp-wide{grid-template-columns:minmax(0,1fr)}
+  .lp-row.flip .lp-fig{order:0}
+  .lp-shots{height:min(430px,108vw);order:-1}
+  .lp-shots img{width:min(200px,50vw)}
+  .phones{grid-template-columns:repeat(2,1fr)}
+  .top nav a{padding:8px 9px;font-size:14px}
+}

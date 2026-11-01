@@ -171,4 +171,12 @@ class ProgramMathTest {
         assertFalse(stillAhead(today, stay, "2026-10-22", 900))            // over
         assertFalse(stillAhead(null, stay, "2026-10-22", 0))               // not a day of the program
     }
+
+    @Test fun dayNamesStayDifferentOnTheDaySwitch() {
+        val named = listOf(ProgramDay("a", "Wed 21 Oct", "2026-10-21"), ProgramDay("b", "Thu 22 Oct", "2026-10-22"))
+        assertEquals(listOf("Wed", "Thu"), shortDayLabels(named))
+        val numbered = listOf(ProgramDay("a", "Day 1", "2026-01-10"), ProgramDay("b", "Day 2", "2026-01-11"))
+        assertEquals(listOf("Day 1", "Day 2"), shortDayLabels(numbered))
+        assertEquals(listOf("Friday"), shortDayLabels(listOf(ProgramDay("a", "Friday", "2026-01-10"))))
+    }
 }

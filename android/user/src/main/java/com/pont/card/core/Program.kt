@@ -200,3 +200,9 @@ fun stillAhead(day: ProgramDay?, at: Placement, today: String, nowMin: Int): Boo
     day.date == today -> at.end > nowMin
     else -> false
 }
+
+/** Short names for the day switch: the first word of each label ("Thu", "Wednesday"), or the whole labels when the first words would be the same ("Day 1", "Day 2"). */
+fun shortDayLabels(days: List<ProgramDay>): List<String> {
+    val firsts = days.map { it.label.substringBefore(' ') }
+    return if (firsts.toSet().size == firsts.size) firsts else days.map { it.label }
+}

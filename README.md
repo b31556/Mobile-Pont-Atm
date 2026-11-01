@@ -1,28 +1,81 @@
-# Pont ATM
+# Pont
 
-A points system for events, clubs and workspaces. People carry an NFC card (MIFARE Classic 1K works, since only its UID is read), and points go onto the card's balance on the server. There are three ways to give points, and they can run side by side:
+**Tap a card. Give points. Everyone sees.**
+
+Pont is a points system for events, clubs and workspaces. People carry an NFC card (MIFARE Classic 1K works, since only its UID is read), and points go onto the card's balance on the server. There are three ways to give points, and they can run side by side:
 
 - **Phone as a point ATM.** An operator types an amount (or taps a preset), taps a card on an Android phone, and the points are credited. The phone shows a progress bar, beeps, and shows the cardholder's photo so the operator can check the face. Operators can storno (refund) a charge without the card.
 - **ESP32 readers.** A small box (ESP32 + MFRC522 + 4-digit display) that gives a **fixed number of points per tap** or works as a **sign-in / sign-out point**. See [ESP32 readers](#esp32-readers).
 - **Check-in zones.** Points for time spent inside: sign in at a door, sign out when leaving, and the server pays by the zone's rules.
 
-An **admin website** manages cards (with photos), terminals, readers, zones, staff and every transaction. A **display page** can show each tap live on a screen next to a reader.
+People see how they are doing on their own phone with **Pont Card**, and on a **display page** next to a reader. An **admin website** manages cards (with photos), terminals, readers, zones, staff, the event program and every transaction.
 
-![The terminal app: keypad, waiting for the card, result, history, presets](docs/images/app-screens.png)
+<p align="center">
+  <img src="server/public/site/img/app-card.png" alt="Pont Card: a card with its points" width="190">
+  <img src="server/public/site/img/app-history.png" alt="Pont Card: the card's history" width="190">
+  <img src="server/public/site/img/app-plan.png" alt="Pont Card: planning the day on the program" width="190">
+  <img src="server/public/site/img/app-pulse.png" alt="Pont Card: what is open now" width="190">
+</p>
 
-*The terminal app. These images come from the clickable design prototype in `sketch/` (made with made-up people), not from a phone, and the app has no sign-in screen: a phone is paired with a code.*
+*Pont Card, the app for card holders: the card, its history, and the event program (Plan and Pulse). Renderings of the app's own screens, made on a computer with made-up people and events.*
 
-![Admin site: cards](docs/images/admin-cards.png)
+## What is in it
 
-*The admin site with dummy data. More screenshots: [Transactions](docs/images/admin-transactions.png), [Terminals](docs/images/admin-terminals.png), [Check-in zones](docs/images/admin-checkin.png), [Readers](docs/images/admin-readers.png).*
+- **Cards and points.** A ledger of every change: nothing edits a balance, a mistake is cancelled (storno) and the cancellation is recorded too. Bulk import of cards with their pictures.
+- **Check-in areas** that pay by time (points per block of minutes, longest stay, caps), with undo, "check everyone out" and "discard everyone" for an area, and a per-person report with a timeline.
+- **Event program.** Activities with their hours, rooms and scoring, shown as lanes on the website and as a plan you can drag together in the app, with the points on top against the goal. Editable (and importable as JSON) on the admin site.
+- **Pont Card** for card holders, **Pont Terminal** for staff phones, **Pont Admin** (the admin site in an app, with a card scanner and sign-in by holding a key).
+- **Display pages** that show every tap live next to a reader, with an optional cancel button per reader.
+- **Live admin pages** over a WebSocket, an admin site laid out for phones, Excel export of pairing codes and reports.
+- **Hardened for the internet**: HTTPS, attempt limits, rate-limited public endpoints. See [Security note](#security-note).
+
+## Pages and apps
+
+| Where | What |
+|---|---|
+| `/` | The front page: what Pont is, with links to everything below |
+| `/app` | Download page of the Android apps |
+| `/program` | The event program as lanes (public, read-only) |
+| `/display` | The live display for a reader (needs the reader's 6-digit code) |
+| `/admin/` | The admin site (sign in with an admin account) |
+
+## Screenshots
+
+All screenshots use made-up people and events.
+
+| | |
+|---|---|
+| ![The program as lanes](server/public/site/img/web-program.png) | ![Admin: cards](server/public/site/img/web-cards.png) |
+| *The program page: one row per activity, time across.* | *Admin: cards.* |
+| ![Admin: a person's report with a timeline](server/public/site/img/web-report.png) | ![Admin: editing the event program](server/public/site/img/web-program-admin.png) |
+| *Admin: a person's report, with a timeline of where they were.* | *Admin: the event program, editable and importable as JSON.* |
+| ![Admin: check-in zones](server/public/site/img/web-checkin.png) | ![Admin: transactions](server/public/site/img/web-transactions.png) |
+| *Admin: check-in zones and their rules.* | *Admin: every transaction.* |
+
+<p align="center">
+  <img src="server/public/site/img/web-display.png" alt="The display page after a tap" width="560">
+  <img src="server/public/site/img/web-admin-phone.png" alt="The admin site on a phone, as in Pont Admin" width="200">
+</p>
+
+*The display page next to a reader, and the admin site on a phone (what Pont Admin shows).*
+
+<p align="center">
+  <img src="server/public/site/img/terminal-give.png" alt="Pont Terminal: the keypad for giving points" width="190">
+  <img src="server/public/site/img/terminal-result.png" alt="Pont Terminal: points received" width="190">
+  <img src="server/public/site/img/terminal-checkin.png" alt="Pont Terminal: the check-in screen" width="190">
+</p>
+
+*Pont Terminal, on a staff phone: the keypad, a result, and check-in.*
+
+The phone screens are renderings of the apps' own screens, made on a computer (not captured from a phone). The web pages are browser screenshots. Everything uses made-up people and events.
 
 ```
-sketch/     Clickable HTML prototype (the approved design reference)
-server/     Node + SQLite server and the admin website (served at /admin/)
-android/    The terminal app (Kotlin, Jetpack Compose)
+server/     Node + SQLite server, the admin website (/admin/), the public pages (/, /app, /program, /display)
+android/    Three Android apps: Pont Card (:user), Pont Terminal (:app), Pont Admin (:admin)
 firmware/   ESP32 reader firmware (PlatformIO) with wiring and photos
+deploy/     Service file, nginx example, the app publishing script
+sketch/     Clickable HTML prototype of the terminal app (the first design reference)
 docs/       Design spec, implementation plan, device test checklist, images
-run-server.sh   Starts the server in the foreground using ~/.config/pont-atm/env
 ```
 
 ## Run the server
@@ -74,17 +127,25 @@ Address for the app and admin site: `http://<machine>.<tailnet>.ts.net:3000` (th
 
 **Many phones at once:** on the Terminals tab, **Pair many phones** takes one phone per line, the place first and then the terminal name (`Floorball Terminal 1`; the first word is the place, or write `Main hall | Bar 2` for a place of several words). Choose ATM or check-in mode (with its zone and point type) and how long the codes work (10 minutes up to 7 days), and you get a table of pairing codes you can copy or download as an Excel file. The codes are shown only once. Each works once, and anyone holding one can pair a phone as that terminal, so keep the table private and use the shortest time that suits you.
 
-## Build the app
+## Build the apps
 
-Needs JDK 17 or newer (the Android Gradle Plugin does not run on Java 11) and the Android SDK.
+Three Android apps share one Gradle project. Needs JDK 17 or newer (the Android Gradle Plugin does not run on Java 11) and the Android SDK.
+
+| Module | App | For |
+|---|---|---|
+| `:user` | **Pont Card** | Card holders: their card, points and history, and the event program (Plan and Pulse). No account. |
+| `:app` | **Pont Terminal** | Staff phones: give points, check people in and out, info kiosk. Paired with a code. |
+| `:admin` | **Pont Admin** | The admin site in an app laid out for phones, with a card scanner and key sign-in. |
 
 ```bash
 cd android
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64   # any JDK 17+
 export ANDROID_HOME=$HOME/Android/Sdk
-./gradlew :app:assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
-./gradlew :app:testDebugUnitTest    # JVM unit tests
+./gradlew :user:assembleDebug :app:assembleDebug :admin:assembleDebug
+./gradlew :user:testDebugUnitTest :app:testDebugUnitTest :admin:testDebugUnitTest   # JVM tests, no phone needed
 ```
+
+The pictures of the app screens used on the front page and in this README are drawn by the apps' own screens on the JVM too: `PONT_SCREENSHOTS=1 PONT_SCREENSHOTS_DIR=/some/folder ./gradlew :user:testDebugUnitTest :app:testDebugUnitTest --tests '*ScreenshotsTest'` writes them at full width (shrink them to about 600 px wide before committing); see the comment at the top of each `ScreenshotsTest.kt`. The screens of Pont Card are tested on the JVM with Robolectric (real clicks and drags on the real composables), so no phone or emulator is needed. `deploy/publish-apps.sh` builds all three for a server, signs them and uploads them to the app page (see [deploy/README.md](deploy/README.md)).
 
 Both builds use the server address set at build time (see above). Plain HTTP is allowed only to `*.ts.net` (Tailscale encrypts it) in release, and to anything in debug. The debug build also shows two small "debug tap" links on the waiting-for-card screen so you can test without a card.
 
