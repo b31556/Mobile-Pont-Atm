@@ -12,7 +12,9 @@
 #include <SPI.h>
 #include <TM1637Display.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <esp_system.h>
+#include <time.h>
 
 #if __has_include("config.h")
 #include "config.h"
@@ -20,6 +22,7 @@
 #error "Copy include/config.example.h to include/config.h and fill in your WiFi and server address."
 #endif
 #include "DisplayLogic.h"
+#include "root_ca.h"
 
 #ifndef PIN_RFID_SS
 #define PIN_RFID_SS 5
@@ -43,6 +46,8 @@ static const uint8_t BRIGHT_ACTIVE = 7, BRIGHT_IDLE = 2;
 MFRC522 rfid(PIN_RFID_SS, PIN_RFID_RST);
 TM1637Display display(PIN_DISPLAY_CLK, PIN_DISPLAY_DIO);
 Preferences prefs;
+WiFiClientSecure secureClient;       // used when SERVER_URL is https://; kept between calls so the connection can be reused
+WiFiClient plainClient;              // used when SERVER_URL is http:// (a trusted network only)
 
 String deviceId, secret, token, mode, pairCode;
 String status = "pending";           // pending | approved | revoked | denied
@@ -108,21 +113,53 @@ String hex32() {
   return String(buf);
 }
 
-/** POSTs JSON to the server. Returns the HTTP status, or 0 when no answer arrived. */
+bool serverIsHttps() { return strncmp(SERVER_URL, "https://", 8) == 0; }
+
+/** An https server's certificate is only valid between two dates, so the reader needs the real date and time first. */
+bool clockReady() { return time(nullptr) > 1700000000; }   // later than November 2023: the clock has been set from the internet
+
+void startClock() {
+  configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");   // keeps retrying by itself until it succeeds
+  const uint32_t start = millis();
+  while (!clockReady() && millis() - start < 10000) delay(100);
+  Serial.printf("Clock: %s\n", clockReady() ? "set from the internet" : "not set yet (https calls wait for it)");
+}
+
+/**
+ * POSTs JSON to the server. Returns the HTTP status, or 0 when no answer arrived. Over https the server's certificate
+ * must chain up to ROOT_CA_PEM and match the host name, or nothing is sent. The connection is kept open between calls,
+ * and if a kept connection has gone stale the call is made once more on a fresh one (the same body and key, so a
+ * repeat cannot give points twice).
+ */
 int postJson(const String& path, const String& body, String& answer, bool withToken, void (*stage)(int) = nullptr) {
   if (WiFi.status() != WL_CONNECTED) return 0;
-  WiFiClient client;
-  HTTPClient http;
-  http.setConnectTimeout(3000);
-  http.setTimeout(4000);
-  if (!http.begin(client, String(SERVER_URL) + path)) return 0;
-  http.addHeader("Content-Type", "application/json");
-  if (withToken) http.addHeader("Authorization", "Bearer " + token);
-  if (stage) stage(2);                     // request on its way
-  const int code = http.POST(body);
-  if (stage) stage(3);                     // the server has answered
-  if (code > 0) answer = http.getString();
-  http.end();
+  const bool tls = serverIsHttps();
+  if (tls && !clockReady()) { Serial.println("TLS: waiting for the clock, not sending"); return 0; }
+  WiFiClient& client = tls ? static_cast<WiFiClient&>(secureClient) : plainClient;
+  int code = 0;
+  for (int pass = 0; pass < 2; pass++) {
+    const bool reused = client.connected();
+    HTTPClient http;
+    http.setReuse(true);
+    http.setConnectTimeout(tls ? 6000 : 3000);
+    http.setTimeout(4000);
+    if (!http.begin(client, String(SERVER_URL) + path)) return 0;
+    http.addHeader("Content-Type", "application/json");
+    if (withToken) http.addHeader("Authorization", "Bearer " + token);
+    if (stage) stage(2);                     // request on its way
+    code = http.POST(body);
+    if (stage) stage(3);                     // the server has answered
+    if (code > 0) answer = http.getString();
+    http.end();
+    if (code > 0) break;
+    if (tls && !reused) {                    // a fresh connection failed: say why (a wrong clock or certificate shows up here)
+      char why[100] = "";
+      secureClient.lastError(why, sizeof why);
+      Serial.printf("TLS: connection failed: %s\n", why[0] ? why : "no detail");
+    }
+    client.stop();
+    if (!reused) break;                      // only a stale kept connection is worth one more try right away
+  }
   return code > 0 ? code : 0;
 }
 
@@ -289,6 +326,13 @@ void setup() {
   if (token.length()) status = "approved";  // until the first hello says otherwise
 
   connectWifi();
+  if (serverIsHttps()) {
+    secureClient.setCACert(ROOT_CA_PEM);     // without this the connection is refused: the server is never accepted unchecked
+    secureClient.setHandshakeTimeout(10);    // seconds
+    startClock();
+  } else {
+    Serial.println("WARNING: SERVER_URL is plain http://. Tokens and card numbers travel unencrypted. Use https:// for a server outside a trusted network.");
+  }
   sayHello();
   showIdle();
 }
