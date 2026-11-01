@@ -19,10 +19,27 @@ import { registerFixed } from './routes/fixed.js';
 import { registerDisplay } from './routes/display.js';
 import { DisplayHub } from './display.js';
 
-export interface AppOptions { db: Db; jwtSecret: string; dataDir?: string; trustProxy?: boolean }
+export interface AppOptions {
+  db: Db; jwtSecret: string; dataDir?: string;
+  /** Which proxies may report a client's address and protocol; see parseTrustProxy. `true` trusts every sender (tests only). */
+  trustProxy?: boolean | string | string[];
+  /** Refuse any request that did not arrive over https (as reported by a trusted proxy), except /health. */
+  requireHttps?: boolean;
+}
 
 export function buildApp(opts: AppOptions): FastifyInstance {
   const app = Fastify({ logger: false, trustProxy: opts.trustProxy ?? false });
+  app.addHook('onRequest', async (req, reply) => {
+    if (opts.requireHttps && req.protocol !== 'https' && req.url !== '/health') {
+      return reply.code(426).header('upgrade', 'TLS/1.2').send({ error: 'Use https://. This server does not answer over plain http.' });
+    }
+  });
+  app.addHook('onSend', async (req, reply, payload) => {
+    reply.header('x-content-type-options', 'nosniff');
+    // Tell browsers to use https for this host from now on. No includeSubDomains: other sites live under the same domain.
+    if (req.protocol === 'https') reply.header('strict-transport-security', 'max-age=31536000');
+    return payload;
+  });
   app.decorate('db', opts.db);
   app.decorate('displayHub', new DisplayHub());
   app.decorate('loginLimiter', new AttemptLimiter(10, 15 * 60 * 1000));
