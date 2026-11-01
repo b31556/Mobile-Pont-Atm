@@ -284,4 +284,87 @@ class ApiTest {
         assertTrue(api.infoTap("u") is InfoOutcome.Failed)
         assertNull(session.terminalToken)
     }
+
+    // ---- session id, discarded visit, cancelling ----
+
+    @Test fun aCheckInCarriesItsSessionId() = runBlocking {
+        server.enqueue(json(200, inBody.replace("\"action\":\"in\"", "\"action\":\"in\",\"sessionId\":77")))
+        val r = (api.presenceTap("04:A2:3B:1C", "k") as PresenceOutcome.Done).result
+        assertEquals(77L, r.sessionId); assertNull(r.discarded)
+    }
+
+    @Test fun anOlderServerHasNoSessionIdOrDiscarded() = runBlocking {
+        server.enqueue(json(200, inBody))
+        val r = (api.presenceTap("04:A2:3B:1C", "k") as PresenceOutcome.Done).result
+        assertNull(r.sessionId); assertNull(r.discarded)
+    }
+
+    @Test fun aDiscardedVisitIsParsedAndUnknownFieldsAreIgnored() = runBlocking {
+        server.enqueue(json(200, inBody.replace("\"action\":\"in\"",
+            "\"action\":\"in\",\"sessionId\":78,\"future\":true,\"discarded\":{\"zone\":\"Main area\",\"minutes\":40,\"visitId\":3}")))
+        val r = (api.presenceTap("04:A2:3B:1C", "k") as PresenceOutcome.Done).result
+        assertEquals("in", r.action); assertEquals(78L, r.sessionId); assertEquals(PresenceDiscarded("Main area", 40), r.discarded)
+    }
+
+    @Test fun aCheckOutCarriesItsSessionId() = runBlocking {
+        server.enqueue(json(200, outBody.replace("\"action\":\"out\"", "\"action\":\"out\",\"sessionId\":77")))
+        assertEquals(77L, ((api.presenceTap("u", "k") as PresenceOutcome.Done).result).sessionId)
+    }
+
+    private val cancelOutBody = """{"action":"cancelled_out","points":24,"card":{"id":"c1","name":"Anna Kovács","photoUrl":"/cards/c1/photo","balance":46},
+        "zone":{"id":"z1","name":"Gym"},"extra":1}"""
+
+    @Test fun cancellingACheckOutReturnsThePointsTakenBack() = runBlocking {
+        server.enqueue(json(200, cancelOutBody))
+        val o = api.cancelSession(77, "out") as CancelOutcome.Done
+        assertEquals("cancelled_out", o.result.action); assertEquals(24, o.result.points); assertEquals(46, o.result.card.balance); assertEquals("Gym", o.result.zone?.name)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method); assertEquals("/presence/sessions/77/cancel", req.path)
+        assertEquals("Bearer term-tok", req.getHeader("Authorization"))
+        assertEquals("""{"expect":"out"}""", req.body.readUtf8())
+    }
+
+    @Test fun cancellingACheckInPaysNothingBack() = runBlocking {
+        server.enqueue(json(200, """{"action":"cancelled_in","points":0,"card":{"id":"c1","name":"Anna","photoUrl":"/p","balance":22},"zone":{"id":"z1","name":"Gym"}}"""))
+        val o = api.cancelSession(78, "in") as CancelOutcome.Done
+        assertEquals("cancelled_in", o.result.action); assertEquals(0, o.result.points)
+        val req = server.takeRequest()
+        assertEquals("/presence/sessions/78/cancel", req.path); assertEquals("""{"expect":"in"}""", req.body.readUtf8())
+    }
+
+    @Test fun everyCancelRefusalCarriesTheServersMessageAndCode() = runBlocking {
+        val cases = listOf(
+            Triple(403, "other_terminal", "This visit was made at another terminal."),
+            Triple(409, "inside_elsewhere", "This card has checked in somewhere else since."),
+            Triple(409, "state_changed", "This visit has changed."),
+            Triple(400, "would_go_negative", "Card has fewer points than this check-out paid."),
+            Triple(400, "nothing_to_cancel", "There is nothing to cancel."),
+            Triple(404, "not_found", "Visit not found."),
+        )
+        for ((status, code, message) in cases) {
+            server.enqueue(json(status, """{"error":"$message","code":"$code"}"""))
+            assertEquals("$status $code", CancelOutcome.Failed(message, code), api.cancelSession(5, "out"))
+        }
+    }
+
+    @Test fun aCancelWithoutAJsonErrorGetsAGenericMessage() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(502).setBody("bad gateway"))
+        assertEquals(CancelOutcome.Failed("Something went wrong (502).", null), api.cancelSession(5, "in"))
+    }
+
+    @Test fun aCancelThatCantBeReadIsAFailure() = runBlocking {
+        server.enqueue(json(200, "nope"))
+        assertTrue(api.cancelSession(5, "in") is CancelOutcome.Failed)
+    }
+
+    @Test fun cancelWithoutAConnectionIsMapped() = runBlocking {
+        server.shutdown()
+        assertEquals(CancelOutcome.NoConnection, api.cancelSession(5, "in"))
+    }
+
+    @Test fun aRevokedPhoneIsUnpairedByACancel() = runBlocking {
+        server.enqueue(json(401, """{"error":"This phone was revoked"}"""))
+        assertTrue(api.cancelSession(5, "in") is CancelOutcome.Failed)
+        assertNull(session.terminalToken)
+    }
 }

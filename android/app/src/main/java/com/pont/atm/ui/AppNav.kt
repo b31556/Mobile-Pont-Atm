@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.pont.atm.AppGraph
 import com.pont.atm.BuildConfig
 import com.pont.atm.core.ApiException
+import com.pont.atm.core.CancelState
 import com.pont.atm.core.ChargeOutcome
 import com.pont.atm.core.FlowState
 import com.pont.atm.core.InfoOutcome
@@ -45,9 +46,6 @@ import com.pont.atm.core.PresenceState
 import com.pont.atm.nfc.NfcReader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-/** How long the result of a check-in tap stays on screen before the phone goes back to "Tap your card". */
-private const val PRESENCE_SHOW_MS = 5_000L
 
 @Composable
 fun AppNav(graph: AppGraph, reader: NfcReader) {
@@ -80,6 +78,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     val currentMode by rememberUpdatedState(mode)
     val presenceState by graph.presence.state.collectAsState()
     val infoState by graph.info.state.collectAsState()
+    val cancelState by graph.cancel.state.collectAsState()
 
     fun noteResult(r: Result<*>) {
         r.onSuccess { online = true }.onFailure { online = (it as? ApiException)?.code != "no_connection" }
@@ -97,7 +96,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
             direction = c.direction; session.direction = c.direction
             zoneName = c.zoneName; session.zoneName = c.zoneName
             val idle = flow.state.value is FlowState.Idle && graph.presence.state.value !is PresenceState.Sending && graph.info.state.value !is InfoState.Sending
-            if (c.mode != mode && idle) { mode = c.mode; session.mode = c.mode; graph.presence.clear(); graph.info.clear() }
+            if (c.mode != mode && idle) { mode = c.mode; session.mode = c.mode; graph.presence.clear(); graph.info.clear(); graph.cancel.reset() }
         }
     }
 
@@ -133,7 +132,7 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
     // Pick up a mode change made in the admin site within about half a minute.
     LaunchedEffect(Unit) { while (true) { delay(30_000); refreshConfig() } }
 
-    // Check-in mode: sound for what the tap did, then back to "Tap your card" after a few seconds.
+    // Check-in mode: sound for what the tap did.
     LaunchedEffect(presenceState) {
         val st = presenceState
         if (st is PresenceState.Showing) {
@@ -144,8 +143,28 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
                 PresenceSound.CheckIn -> graph.beeper.checkIn()
                 PresenceSound.Refusal -> graph.beeper.error()
             }
-            delay(PRESENCE_SHOW_MS)
+        }
+    }
+
+    // ...then back to "Tap your card" after a few seconds. Not while a cancel is being confirmed or sent, and not
+    // after one went through (its Done button leaves); an error restarts the wait so its message can be read.
+    LaunchedEffect(presenceState, cancelState) {
+        val st = presenceState
+        if (st is PresenceState.Showing) {
+            val cs = cancelState
+            val mine = (st.outcome as? PresenceOutcome.Done)?.let { cancelKeyOf(it.result) }?.takeIf { it == cs.keyOrNull }
+            if (mine != null && (cs is CancelState.Asking || cs is CancelState.Sending || cs is CancelState.Done)) return@LaunchedEffect
+            delay(presenceShowMs(st.outcome))
             graph.presence.clear()
+        }
+    }
+
+    // A cancel finished: it reached the server (or the phone was unpaired), and the beep says how it went.
+    LaunchedEffect(cancelState) {
+        when (cancelState) {
+            is CancelState.Done -> { online = true; noteResult(Result.success(Unit)); graph.beeper.ok() }
+            is CancelState.Failed -> { noteResult(Result.success(Unit)); graph.beeper.error() }
+            else -> {}
         }
     }
 
@@ -188,7 +207,11 @@ fun AppNav(graph: AppGraph, reader: NfcReader) {
                 Box(Modifier.weight(1f).fillMaxWidth().then(if (showTabs) Modifier else Modifier.navigationBarsPadding())) {
                     when {
                         presenceMode -> PresenceScreen(
-                            presenceState, api, session.terminalName.orEmpty(), direction, zoneName, onMenu = { menu = true },
+                            presenceState, api, session.terminalName.orEmpty(), direction, zoneName, cancelState,
+                            onAskCancel = graph.cancel::ask, onDismissCancel = graph.cancel::dismiss,
+                            onConfirmCancel = { key -> scope.launch { graph.cancel.confirm(key) } },
+                            onDone = { graph.cancel.reset(); graph.presence.clear() },
+                            onMenu = { menu = true },
                             onDebugTag = { uid -> scope.launch { graph.presence.onTag(uid) } },
                         )
                         infoMode -> InfoScreen(

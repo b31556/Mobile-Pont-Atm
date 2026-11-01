@@ -90,6 +90,21 @@ class HistoryTest {
         assertEquals("Refund", c.title); assertEquals("−8", c.amount); assertEquals(Sign.Minus, c.sign); assertEquals(RowKind.Refund, c.kind)
     }
 
+    @Test fun aStornoNotedAsACancelledCheckOutIsTitledThatWay() {
+        val c = rowCopy(e("2026-11-01T14:20:00.000Z", "storno", -24, "Gym", "Check-out cancelled"))
+        assertEquals("Check-out cancelled", c.title); assertEquals("Gym", c.detail); assertEquals("\u221224", c.amount); assertEquals(RowKind.Refund, c.kind)
+        assertEquals("Check-out cancelled", rowCopy(e("2026-11-01T14:20:00.000Z", "storno", -24, "", " check-out cancelled ")).title)
+        assertNull(rowCopy(e("2026-11-01T14:20:00.000Z", "storno", -24, "", "Check-out cancelled")).detail)
+    }
+
+    @Test fun otherStornosStayRefundsWhateverTheirNote() {
+        val c = rowCopy(e("2026-11-01T14:20:00.000Z", "storno", -8, "Bar 2", "Wrong amount"))
+        assertEquals("Refund", c.title); assertEquals("Bar 2 \u00b7 Wrong amount", c.detail)
+        assertEquals("Refund", rowCopy(e("2026-11-01T14:20:00.000Z", "storno", -8, "Bar 2", null)).title)
+        // Only a storno gets the new title: the same note on another kind changes nothing.
+        assertEquals("Adjustment", rowCopy(e("2026-11-01T14:20:00.000Z", "adjust", -8, "", "Check-out cancelled")).title)
+    }
+
     @Test fun anAdjustmentShowsItsReasonInsteadOfAPlace() {
         val c = rowCopy(e("2026-11-01T14:20:00.000Z", "adjust", -3, "", "Lost wristband"))
         assertEquals("Adjustment", c.title); assertEquals("Lost wristband", c.detail); assertEquals("−3", c.amount)

@@ -37,6 +37,8 @@ fun dayHeading(day: LocalDate?, today: LocalDate = LocalDate.now()): String = wh
 fun timeOfDay(iso: String, zone: ZoneId = ZoneId.systemDefault()): String =
     instantOf(iso)?.let { hm.format(it.atZone(zone)) } ?: "–"
 
+private const val CHECK_OUT_CANCELLED = "Check-out cancelled"
+
 enum class RowKind { Received, CheckOut, Refund, Adjustment, Other }
 enum class Sign { Plus, Minus, Zero }
 
@@ -50,7 +52,10 @@ fun rowCopy(e: HistoryEntry): RowCopy {
     val (kind, title, detail) = when (e.kind) {
         "atm", "fixed" -> Triple(RowKind.Received, "Points received", place)
         "presence" -> Triple(RowKind.CheckOut, "Check-out", both)
-        "storno" -> Triple(RowKind.Refund, "Refund", both)
+        // The server's note for the reversal of a cancelled check-out; any other storno is a plain refund.
+        "storno" ->
+            if (note.equals(CHECK_OUT_CANCELLED, ignoreCase = true)) Triple(RowKind.Refund, CHECK_OUT_CANCELLED, place)
+            else Triple(RowKind.Refund, "Refund", both)
         "adjust" -> Triple(RowKind.Adjustment, "Adjustment", note)
         else -> Triple(RowKind.Other, "Transaction", place)
     }

@@ -1,6 +1,7 @@
 package com.pont.atm
 
 import android.content.Context
+import com.pont.atm.core.CancelFlow
 import com.pont.atm.core.ChargeFlow
 import com.pont.atm.core.InfoFlow
 import com.pont.atm.core.PresenceFlow
@@ -19,6 +20,7 @@ class AppGraph(context: Context) {
     val flow = ChargeFlow({ uid, amount, key -> api.charge(uid, amount, key) }) { UUID.randomUUID().toString() }
     val presence = PresenceFlow(api, { UUID.randomUUID().toString() })
     val info = InfoFlow(api)
+    val cancel = CancelFlow(api)
     val beeper = Beeper(context)
     val history = HistoryViewModel(api)
     val presets = PresetsViewModel(api)

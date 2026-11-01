@@ -23,7 +23,7 @@ class PontApi(
     private val session: SessionStore,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).writeTimeout(10, TimeUnit.SECONDS).build(),
-) : HistoryApi, PresetsApi, PresenceApi, InfoApi {
+) : HistoryApi, PresetsApi, PresenceApi, InfoApi, PresenceCancelApi {
     private val json = Json { ignoreUnknownKeys = true }
     private class Raw(val status: Int, val body: String)
 
@@ -105,6 +105,19 @@ class PontApi(
             }
             r.status == 409 && code == "wrong_mode" -> PresenceOutcome.WrongMode
             else -> PresenceOutcome.Failed(errorOf(r).message ?: "Something went wrong.")
+        }
+    }
+
+    /** Cancels the check-in or check-out [sessionId] (`expect` = `in` or `out`). Safe to repeat: the server checks the expectation. */
+    override suspend fun cancelSession(sessionId: Long, expect: String): CancelOutcome {
+        val r = try { raw("POST", "/presence/sessions/$sessionId/cancel", buildJsonObject { put("expect", expect) }) } catch (e: IOException) { return CancelOutcome.NoConnection }
+        if (r.status == 401) unpair()
+        return if (r.status == 200) {
+            runCatching { CancelOutcome.Done(json.decodeFromString<CancelResult>(r.body)) }
+                .getOrElse { CancelOutcome.Failed("The server sent an answer the app can't read.") }
+        } else {
+            val e = errorOf(r)
+            CancelOutcome.Failed(e.message ?: "Something went wrong.", e.code)
         }
     }
 

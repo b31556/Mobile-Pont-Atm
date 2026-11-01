@@ -66,7 +66,32 @@ interface PresetsApi {
     val action: String, val card: PresenceCard, val inAt: String? = null, val outAt: String? = null, val minutes: Int? = null,
     val points: Int = 0, val raw: Int = 0, val cappedBy: String? = null, val today: PresenceToday, val expiredMinutes: Int? = null,
     val zone: ZoneRef? = null,
+    /** The visit this tap opened (`in`) or closed (`out`); what [PresenceCancelApi] cancels. Null from an older server. */
+    val sessionId: Long? = null,
+    /** At a sign-in point only: the card was still inside elsewhere, and that visit was cancelled without points. */
+    val discarded: PresenceDiscarded? = null,
 )
+
+/** The visit that was cancelled because the card checked in somewhere else: [zone] it was in, and for how long. */
+@Serializable data class PresenceDiscarded(val zone: String = "", val minutes: Int = 0)
+
+/**
+ * The answer to cancelling a check-in or check-out: [action] is `cancelled_in` or `cancelled_out`,
+ * [points] the points taken back (0 for a check-in), and [card] carries the new balance.
+ */
+@Serializable data class CancelResult(val action: String, val points: Int = 0, val card: PresenceCard, val zone: ZoneRef? = null)
+
+sealed interface CancelOutcome {
+    data class Done(val result: CancelResult) : CancelOutcome
+    /** The server refused or failed; [message] is its own words, [code] e.g. `inside_elsewhere`. */
+    data class Failed(val message: String, val code: String? = null) : CancelOutcome
+    data object NoConnection : CancelOutcome
+}
+
+fun interface PresenceCancelApi {
+    /** [expect] is `in` to cancel a check-in or `out` to cancel a check-out; the server refuses if the visit is not in that state. */
+    suspend fun cancelSession(sessionId: Long, expect: String): CancelOutcome
+}
 
 sealed interface PresenceOutcome {
     data class Done(val result: PresenceResult) : PresenceOutcome
