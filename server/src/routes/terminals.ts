@@ -32,7 +32,7 @@ export function registerTerminals(app: FastifyInstance) {
       return {
         id: t.id, name: t.name, place: t.place, lastSeen: t.last_seen, appVersion: t.app_version, device: t.device,
         online: !!t.last_seen && Date.now() - Date.parse(t.last_seen) < ONLINE_WINDOW_MS,
-        givenToday: given.s, operator: t.last_operator ?? '', mode: t.mode, direction: t.direction, kind: t.kind, fixed: fixedOf(t), displayCode: displayCodeFor(db, t.id), displayBeep: !!t.display_beep,
+        givenToday: given.s, operator: t.last_operator ?? '', mode: t.mode, direction: t.direction, kind: t.kind, fixed: fixedOf(t), displayCode: displayCodeFor(db, t.id), displayBeep: !!t.display_beep, chargeLimitHour: t.charge_limit_hour ?? null,
         ip: t.kind === 'device' ? (db.prepare('select ip from devices where terminal_id=?').get(t.id) as { ip: string | null } | undefined)?.ip ?? null : null,
         firmware: t.kind === 'device' ? (db.prepare('select firmware from devices where terminal_id=?').get(t.id) as { firmware: string | null } | undefined)?.firmware ?? null : null,
         zoneId: t.zone_id ?? null, zoneName: t.zone_id ? (db.prepare('select name from zones where id=?').get(t.zone_id) as { name: string } | undefined)?.name ?? null : null,
@@ -56,7 +56,7 @@ export function registerTerminals(app: FastifyInstance) {
 
   app.patch('/terminals/:id', { preHandler: app.requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = (req.body ?? {}) as { name?: string; place?: string; mode?: string; zoneId?: string; direction?: string; fixed?: unknown; displayBeep?: unknown };
+    const b = (req.body ?? {}) as { name?: string; place?: string; mode?: string; zoneId?: string; direction?: string; fixed?: unknown; displayBeep?: unknown; chargeLimitHour?: unknown };
     const t = db.prepare('select zone_id, kind from terminals where id=? and active=1').get(id) as { zone_id: string | null; kind: string } | undefined;
     if (!t) return reply.code(404).send({ error: 'Terminal not found' });
     if (b.mode !== undefined) {
@@ -64,6 +64,11 @@ export function registerTerminals(app: FastifyInstance) {
       if (!allowed.includes(b.mode)) return reply.code(400).send({ error: t.kind === 'device' ? 'A reader can be in check-in (presence) or fixed-amount mode' : 'A phone can be in ATM or check-in (presence) mode' });
     }
     if (b.displayBeep !== undefined && typeof b.displayBeep !== 'boolean') return reply.code(400).send({ error: 'displayBeep must be true or false' });
+    if (b.chargeLimitHour !== undefined) {
+      if (t.kind !== 'phone') return reply.code(400).send({ error: 'Only phones have an hourly points limit' });
+      const v = b.chargeLimitHour;
+      if (v !== null && !(typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 1_000_000)) return reply.code(400).send({ error: 'The hourly limit must be empty (no limit) or a whole number from 1 to 1000000' });
+    }
     let fixed = null;
     if (b.fixed !== undefined) {
       if (t.kind !== 'device') return reply.code(400).send({ error: 'Only readers have fixed-amount settings' });
@@ -84,10 +89,11 @@ export function registerTerminals(app: FastifyInstance) {
       vals.push(fixed.amount, fixed.cooldownSeconds, fixed.maxUses24h, fixed.maxPoints24h, fixed.maxUsesTotal);
     }
     if (b.displayBeep !== undefined) { set.push('display_beep=?'); vals.push(b.displayBeep ? 1 : 0); }
+    if (b.chargeLimitHour !== undefined) { set.push('charge_limit_hour=?'); vals.push(b.chargeLimitHour); }
     if (b.zoneId !== undefined) { set.push('zone_id=?'); vals.push(b.zoneId); }
     else if (b.mode === 'presence' && !t.zone_id) { set.push('zone_id=?'); vals.push(defaultZone(db).id); }
     if (set.length) db.prepare(`update terminals set ${set.join(',')} where id=?`).run(...vals, id);
-    return db.prepare('select id,name,place,mode,zone_id zoneId,direction from terminals where id=?').get(id);
+    return db.prepare('select id,name,place,mode,zone_id zoneId,direction,charge_limit_hour chargeLimitHour from terminals where id=?').get(id);
   });
 
   /** Makes a new display code, signs out every screen that used the old one, and hangs up their live connections. */

@@ -10,6 +10,8 @@ interface TxRow {
   idempotency_key: string | null; created_at: string; balance_after: number;
 }
 
+const HOUR_MS = 3600 * 1000;
+
 class Refusal extends Error {
   constructor(public status: number, public code: string, message: string, public extra: object = {}) { super(message); }
 }
@@ -30,6 +32,17 @@ export function registerCharges(app: FastifyInstance) {
     const card = findCardByUid(db, uid);
     if (!card) throw new Refusal(404, 'unknown_card', 'Card not registered');
     if (card.status === 'blocked') throw new Refusal(403, 'card_blocked', 'Card is blocked', { card: { name: card.name, photoUrl: cardJson(card).photoUrl } });
+    // A phone's token is enough to charge, so what one phone can give away per hour is capped (null = no limit).
+    const limit = (db.prepare('select charge_limit_hour l from terminals where id=?').get(terminalId) as { l: number | null } | undefined)?.l ?? null;
+    if (limit !== null) {
+      const since = new Date(Date.now() - HOUR_MS).toISOString();
+      const given = db.prepare("select coalesce(sum(amount),0) s, min(created_at) oldest from transactions where terminal_id=? and kind='atm' and type='give' and status='ok' and created_at>=?")
+        .get(terminalId, since) as { s: number; oldest: string | null };
+      if (given.s + amount > limit) {
+        const retryInSeconds = given.oldest ? Math.max(1, Math.ceil((Date.parse(given.oldest) + HOUR_MS - Date.now()) / 1000)) : null;
+        throw new Refusal(429, 'terminal_limit', `This phone has reached its limit of ${limit} points per hour. Ask an admin.`, { retryInSeconds });
+      }
+    }
     const now = stamp().toISOString();
     db.prepare('update cards set balance=balance+?, last_used=? where id=?').run(amount, now, card.id);
     const after = card.balance + amount;

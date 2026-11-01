@@ -272,7 +272,7 @@ function terminalsPane() {
   const list = (state.data.terminals || []).filter(t => t.kind !== 'device');
   return `<div class="ph"><div><h1>Terminals</h1><p>A paired phone is a terminal. In ATM mode it gives points for an amount. In Check-in mode it signs people in and out: pick its zone (which decides the rules) and whether it signs in, signs out, or toggles. A phone follows a mode change within about 30 seconds.</p></div><span class="sp"></span>
     <button class="btn green" data-act="newterm">Pair a phone</button></div>
-    <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Mode</th><th>Check-in point</th><th>Phone</th><th>App</th><th>Given today</th><th></th></tr></thead><tbody>
+    <div class="tw"><table><thead><tr><th>Terminal</th><th>Status</th><th>Mode</th><th>Check-in point</th><th>Phone</th><th>App</th><th>Given today</th><th title="Most points this phone can give in any hour. Empty means no limit.">Hourly limit</th><th></th></tr></thead><tbody>
     ${list.length ? list.map(t => `<tr><td><b>${esc(t.name)}</b><div style="font-size:12px;color:var(--ink-3)">${esc(t.place)}</div></td>
       <td>${t.online ? '<span class="pill ok">Online</span>' : '<span class="pill mute">Offline</span>'}<div style="font-size:12px;color:var(--ink-3)">${t.lastSeen ? esc(when(t.lastSeen)) : 'Never seen'}</div></td>
       <td><select class="modesel" data-mode-for="${t.id}" aria-label="Mode of ${esc(t.name)}"><option value="atm"${t.mode === 'atm' ? ' selected' : ''}>ATM</option><option value="presence"${t.mode === 'presence' ? ' selected' : ''}>Check-in</option></select></td>
@@ -280,8 +280,9 @@ function terminalsPane() {
         <select class="modesel" data-dir-for="${t.id}" aria-label="Point type of ${esc(t.name)}"><option value="toggle"${t.direction === 'toggle' ? ' selected' : ''}>Toggle (in / out)</option><option value="in"${t.direction === 'in' ? ' selected' : ''}>Sign in only</option><option value="out"${t.direction === 'out' ? ' selected' : ''}>Sign out only</option></select></div>` : '<span style="color:var(--ink-3)">—</span>'}</td>
       <td style="color:var(--ink-2)">${esc(t.device || '—')}</td>
       <td class="mono">${esc(t.appVersion || '—')}</td><td class="num">${t.givenToday}</td>
+      <td><input class="search" type="number" min="1" step="1" style="width:90px;min-width:0" placeholder="No limit" value="${t.chargeLimitHour ?? ''}" data-limit-for="${t.id}" aria-label="Hourly points limit of ${esc(t.name)}"></td>
       <td><div class="rowbtns"><button class="btn line sm" data-act="newcode" data-id="${t.id}">New code</button><button class="btn line sm" data-act="revoke" data-id="${t.id}" data-name="${esc(t.name)}">Revoke</button></div></td></tr>`).join('')
-      : '<tr><td colspan="8" class="empty">No terminals yet. Pair the first phone.</td></tr>'}
+      : '<tr><td colspan="9" class="empty">No terminals yet. Pair the first phone.</td></tr>'}
     </tbody></table></div>`;
 }
 
@@ -438,6 +439,10 @@ root.addEventListener('change', async e => {
   if (e.target.dataset && (e.target.dataset.zoneFor || e.target.dataset.dirFor)) {
     const id = e.target.dataset.zoneFor || e.target.dataset.dirFor;
     await guard(async () => { await api('PATCH', '/terminals/' + id, e.target.dataset.zoneFor ? { zoneId: e.target.value } : { direction: e.target.value }); await refresh(); toast('Saved.'); });
+  }
+  if (e.target.dataset && e.target.dataset.limitFor) {
+    const raw = e.target.value.trim(), limit = raw === '' ? null : Number(raw);
+    await guard(async () => { await api('PATCH', '/terminals/' + e.target.dataset.limitFor, { chargeLimitHour: limit }); await refresh(); toast(limit === null ? 'No hourly limit.' : 'Hourly limit saved.'); });
   }
   if (e.target.dataset && e.target.dataset.beepFor) {
     await guard(async () => { await api('PATCH', '/terminals/' + e.target.dataset.beepFor, { displayBeep: e.target.checked }); await refresh(); toast(e.target.checked ? 'The display will beep.' : 'The display is silent.'); });
